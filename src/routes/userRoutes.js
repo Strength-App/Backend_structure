@@ -1,4 +1,5 @@
 import express from "express";
+import bcrypt from "bcrypt";
 import db from "../config/database.js";
 import getMongoClient from "mongodb";
 
@@ -6,16 +7,29 @@ import getMongoClient from "mongodb";
 // Creates an instance of the Express router, used to define our routes
 const router = express.Router();
 
+// Hash password
+const saltRounds = 10;
 
 // Add Users
 router.post("/add", async (req, res) => {
     try{
         const collection = await db.collection("users");
-        const new_user = {
-            name: req.body.name,
-            email: req.body.email,
-            password: req.body.password
+        const { firstName, lastName, email, password } = req.body;
+        
+        //Check if user already exist
+        const existingUser = await collection.findOne({email});
+        if (existingUser){
+            return res.status(400).json({message: "Email already registered"});
         }
+
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        const new_user = {
+            firstName,
+            lastName,
+            email,
+            password: hashedPassword
+        };
 
         const result = await collection.insertOne(new_user);
         res.status(201).json(result)
@@ -26,14 +40,30 @@ router.post("/add", async (req, res) => {
     }
 });
 
-// Gets a list of all the users
-router.get("/login", async (req, res) => {
-    let collection = await db.collection("users");
-    const login = {
-        email: req.body.email,
-        password: req.body.password}
-    let results = await collection.findOne(login);
-    res.send(results).status(200);
+// Login user
+router.post("/login", async (req, res) => {
+    try{
+        let collection = await db.collection("users");
+        const {email, password} = req.body;
+
+        // find user email
+        let user = await collection.findOne({email});
+
+        if (!user){
+            return res.status(400).send("User not found")
+        }
+        // Compare plain password with stored hashed password
+        const isMatch = await bcrypt.compare(password, user.password)
+
+        if (!isMatch){
+            return res.status(400).send("Invalid credentials");
+        }
+    
+        res.json({message: "Login succesful"});
+    } catch (err){
+        console.error(err);
+        res.status(500).send("Login error")
+    }
 });
 
 
