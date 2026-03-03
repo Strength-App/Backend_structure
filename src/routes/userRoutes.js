@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../config/database.js";
 import getMongoClient from "mongodb";
+import { classification } from "../controllers/userController.js";
 
 
 // Creates an instance of the Express router, used to define our routes
@@ -36,5 +37,6 @@ router.get("/login", async (req, res) => {
     res.send(results).status(200);
 });
 
+router.post("/classification", classification);
 
 export default router;
