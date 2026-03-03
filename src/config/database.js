@@ -1,6 +1,10 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { MongoClient, ServerApiVersion } from "mongodb";
 
-const URI = process.env.MONGODB_URI || "mongodb+srv://Admin:MQja461vqzV4QvAH@maxmethod.40qppa0.mongodb.net/?appName=MaxMethod";
+const URI = process.env.MONGODB_URI;
+
 const client = new MongoClient(URI, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -23,6 +27,4 @@ try {
 } catch (err) {
     console.error(err);
 }
-
-
 export default db;
