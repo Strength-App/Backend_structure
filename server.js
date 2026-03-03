@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import db from "./src/config/database.js";
 // node --env-file=config.env server
+import userRoutes from "./src/routes/userRoutes.js";
 import * as path from "path";
 import dotenv from "dotenv"
 
@@ -21,6 +22,7 @@ dotenv.config();
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api/users", userRoutes);
 
 app.post("/logintest", async (req, res) => {
   const { email, password } = req.body;
