@@ -14,7 +14,7 @@ const saltRounds = 10;
 router.post("/add", async (req, res) => {
     try{
         const collection = await db.collection("users");
-        const { firstName, lastName, email, password } = req.body;
+        const { name, email, password } = req.body;
         
         //Check if user already exist
         const existingUser = await collection.findOne({email});
@@ -25,8 +25,7 @@ router.post("/add", async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         const new_user = {
-            firstName,
-            lastName,
+            name,
             email,
             password: hashedPassword
         };
@@ -65,6 +64,5 @@ router.post("/login", async (req, res) => {
         res.status(500).send("Login error")
     }
 });
-
 
 export default router;
