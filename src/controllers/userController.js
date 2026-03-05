@@ -1,4 +1,6 @@
-export const classification = (req, res) => {
+import db from "../config/database.js";
+
+export const classification = async (req, res) => {
   try {
     const { gender, benchPress, deadlift, squat, bodyWeight } = req.body;
 
@@ -14,7 +16,7 @@ export const classification = (req, res) => {
     let classification = "Unclassified";
 
     // Gender is male
-    if (gender === "male") {
+    if (gender === "male" || gender === "other") {
       
       // Weight class: under 120 lbs
       if (weight < 120) {
@@ -606,328 +608,26 @@ export const classification = (req, res) => {
       }
     }
 
-    // Gender is other
-    if (gender === "other") {
-      
-      // Weight class: under 120 lbs
-      if (weight < 120) {
-        if (totalOneRepMax < 394) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 518) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 658) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 808) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
+    // Saves the classification data to the database
+    const collection = await db.collection("classifications");
 
-      // Weight class: 120 to 130 lbs
-      if (weight >= 120 && weight < 130) {
-        if (totalOneRepMax < 443) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 573) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 721) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 877) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 130 to 140 lbs
-      if (weight >= 130 && weight < 140) {
-        if (totalOneRepMax < 490) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 627) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 781) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 943) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 140 to 150 lbs
-      if (weight >= 140 && weight < 150) {
-        if (totalOneRepMax < 535) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 678) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 838) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1006) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 150 to 160 lbs
-      if (weight >= 150 && weight < 160) {
-        if (totalOneRepMax < 580) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 728) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 894) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1067) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 160 to 170 lbs
-      if (weight >= 160 && weight < 170) {
-        if (totalOneRepMax < 623) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 777) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 947) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1125) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 170 to 180 lbs
-      if (weight >= 170 && weight < 180) {
-        if (totalOneRepMax < 665) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 823) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 999) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1182) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 180 to 190 lbs
-      if (weight >= 180 && weight < 190) {
-        if (totalOneRepMax < 706) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 869) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1049) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1236) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 190 to 200 lbs
-      if (weight >= 190 && weight < 200) {
-        if (totalOneRepMax < 746) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 913) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1097) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1288) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 200 to 210 lbs
-      if (weight >= 200 && weight < 210) {
-        if (totalOneRepMax < 784) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 956) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1144) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1339) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 210 to 220 lbs
-      if (weight >= 210 && weight < 220) {
-        if (totalOneRepMax < 822) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 997) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1189) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1388) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 220 to 230 lbs
-      if (weight >= 220 && weight < 230) {
-        if (totalOneRepMax < 859) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1038) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1233) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1436) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 230 to 240 lbs
-      if (weight >= 230 && weight < 240) {
-        if (totalOneRepMax < 895) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1077) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1276) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1482) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 240 to 250 lbs
-      if (weight >= 240 && weight < 250) {
-        if (totalOneRepMax < 930) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1116) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1318) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1527) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 250 to 260 lbs
-      if (weight >= 250 && weight < 260) {
-        if (totalOneRepMax < 964) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1153) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1359) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1571) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 260 to 270 lbs
-      if (weight >= 260 && weight < 270) {
-        if (totalOneRepMax < 998) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1190) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1399) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1614) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 270 to 280 lbs
-      if (weight >= 270 && weight < 280) {
-        if (totalOneRepMax < 1031) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1226) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1438) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1655) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 280 to 290 lbs
-      if (weight >= 280 && weight < 290) {
-        if (totalOneRepMax < 1063) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1261) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1475) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1696) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 290 to 300 lbs
-      if (weight >= 290 && weight < 300) {
-        if (totalOneRepMax < 1094) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1295) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1512) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1736) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: 300 to 310 lbs
-      if (weight >= 300 && weight < 310) {
-        if (totalOneRepMax < 1125) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1328) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1549) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1775) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-
-      // Weight class: Over 310 lbs
-      if (weight >= 310) {
-        if (totalOneRepMax < 1155) {
-          classification = "Beginner";
-        } else if (totalOneRepMax < 1361) {
-          classification = "Novice";
-        } else if (totalOneRepMax < 1584) {
-          classification = "Intermediate";
-        } else if (totalOneRepMax < 1812) {
-          classification = "Advanced";
-        } else {
-          classification = "Elite";
-        }
-      }
-    }
-
+    const result = await collection.insertOne({
+      gender,
+      benchPress,
+      deadlift,
+      squat,
+      bodyWeight: weight,
+      totalOneRepMax,
+      classification
+    });
 
     res.status(200).json({
-      totalOneRepMax: totalOneRepMax,
+      gender,
+      benchPress,
+      deadlift,
+      squat,
+      bodyWeight: weight,
+      totalOneRepMax,
       classification
     });
 

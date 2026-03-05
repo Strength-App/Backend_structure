@@ -68,4 +68,8 @@ router.post("/login", async (req, res) => {
 
 router.post("/classification", classification);
 
+// Receives the classification data and saves it to the database
+router.post("/classification", classification);
+
+
 export default router;
