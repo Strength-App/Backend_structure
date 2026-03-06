@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import db from "../config/database.js";
-import getMongoClient from "mongodb";
+//import getMongoClient from "mongodb";
 import { classification } from "../controllers/userController.js";
 
 
@@ -14,8 +14,8 @@ const saltRounds = 10;
 // Add Users
 router.post("/add", async (req, res) => {
     try{
-        const collection = await db.collection("users");
-        const { name, email, password } = req.body;
+        const collection = db.collection("users");
+        const { firstName, lastName, email, password } = req.body;
         
         //Check if user already exist
         const existingUser = await collection.findOne({email});
@@ -26,7 +26,8 @@ router.post("/add", async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         const new_user = {
-            name,
+            firstName,
+            lastName,
             email,
             password: hashedPassword
         };
@@ -58,15 +59,29 @@ router.post("/login", async (req, res) => {
         if (!isMatch){
             return res.status(400).send("Invalid credentials");
         }
+
+        const { name_first, name_last, bday, gender, current_bodyweight, current_one_rep_maxes, current_classification} = user;
+
+         res.status(200).json({ 
+        success: true,
+        user: {
+            email, 
+            name_first, 
+            name_last, 
+            bday, 
+            gender, 
+            current_bodyweight, 
+            current_one_rep_maxes, 
+            current_classification 
+        }
+        });
     
-        res.json({message: "Login succesful"});
     } catch (err){
         console.error(err);
         res.status(500).send("Login error")
     }
 });
 
-router.post("/classification", classification);
 
 // Receives the classification data and saves it to the database
 router.post("/classification", classification);
