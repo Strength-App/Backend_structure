@@ -1,9 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import db from "../config/database.js";
-import getMongoClient from "mongodb";
 import { classification } from "../controllers/userController.js";
-
 
 // Creates an instance of the Express router, used to define our routes
 const router = express.Router();
@@ -11,11 +9,11 @@ const router = express.Router();
 // Hash password
 const saltRounds = 10;
 
-// Add Users
-router.post("/add", async (req, res) => {
+// Add Users --> updated path to create-account
+router.post("/create-account", async (req, res) => {
     try{
         const collection = await db.collection("users");
-        const { name, email, password } = req.body;
+        const { firstName, lastName, email, password } = req.body;
         
         //Check if user already exist
         const existingUser = await collection.findOne({email});
@@ -26,13 +24,17 @@ router.post("/add", async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         const new_user = {
-            name,
+            firstName,
+            lastName,
             email,
             password: hashedPassword
         };
 
         const result = await collection.insertOne(new_user);
-        res.status(201).json(result)
+        res.status(201).json({_id: result.insertedId,
+            firstName,
+            lastName,
+            email })
     }
     catch(err){
         console.error(err);
