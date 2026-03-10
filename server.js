@@ -7,14 +7,17 @@ import dotenv from "dotenv"
 
 
 dotenv.config()
+
 const PORT = process.env.PORT || 5050;
 
 const app = express();
+const mongoURI = process.env.MONGODB_URI;
 const corsOptions = {
-    origin: ["http://localhost:5173", "http://localhost:5050"],
+    origin: ["http://localhost:5173"],
     optionsSuccessStatus: 200
 
 };
+
 const __dirname = path.resolve();
 
 
@@ -48,6 +51,7 @@ app.get("/history", cors(corsOptions), (req, res,next) => {
 app.get("/settings", cors(corsOptions), (req, res,next) => {
     res.sendFile(path.join(__dirname, "/src/index.html"));
 })
+
 
 
 

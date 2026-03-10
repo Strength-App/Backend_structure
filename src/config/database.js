@@ -1,3 +1,6 @@
+import {setServers} from 'dns';
+setServers(['8.8.8.8', '8.8.4.4']);
+
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -20,7 +23,7 @@ try {
     // Connect the client to the server
     await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    await client.db("Maxmethod_db").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     db = client.db("Maxmethod_db")

@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import db from "../config/database.js";
 //import getMongoClient from "mongodb";
 import { classification } from "../controllers/userController.js";
-
+import { goals } from "../controllers/userController.js";
 
 // Creates an instance of the Express router, used to define our routes
 const router = express.Router();
@@ -11,8 +11,8 @@ const router = express.Router();
 // Hash password
 const saltRounds = 10;
 
-// Add Users
-router.post("/add", async (req, res) => {
+// Add Users --> updated path to create-account
+router.post("/create-account", async (req, res) => {
     try{
         const collection = db.collection("users");
         const { firstName, lastName, email, password } = req.body;
@@ -44,7 +44,10 @@ router.post("/add", async (req, res) => {
         };
 
         const result = await collection.insertOne(new_user);
-        res.status(201).json(result)
+        res.status(201).json({_id: result.insertedId,
+            firstName,
+            lastName,
+            email })
     }
     catch(err){
         console.error(err);
@@ -93,9 +96,10 @@ router.post("/login", async (req, res) => {
     }
 });
 
-
 // Receives the classification data and saves it to the database
 router.post("/classification", classification);
 
+// Receives the goals data and saves it to the database
+router.post("/goals", goals);
 
 export default router;
