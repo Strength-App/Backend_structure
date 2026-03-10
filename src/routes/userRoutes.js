@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import db from "../config/database.js";
 import getMongoClient from "mongodb";
 import { classification } from "../controllers/userController.js";
+import { goals } from "../controllers/userController.js";
 
 
 // Creates an instance of the Express router, used to define our routes
@@ -66,10 +67,10 @@ router.post("/login", async (req, res) => {
     }
 });
 
-router.post("/classification", classification);
-
 // Receives the classification data and saves it to the database
 router.post("/classification", classification);
 
+// Receives the goals data and saves it to the database
+router.post("/goals", goals);
 
 export default router;

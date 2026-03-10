@@ -1,5 +1,6 @@
 import db from "../config/database.js";
 
+// Controller for handling user classification
 export const classification = async (req, res) => {
   try {
     const { gender, benchPress, deadlift, squat, bodyWeight } = req.body;
@@ -629,6 +630,96 @@ export const classification = async (req, res) => {
       bodyWeight: weight,
       totalOneRepMax,
       classification
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+// Controller for handling user goals
+export const goals = async (req, res) => {
+  try {
+    const { daysPerWeek, goalSelection, classification } = req.body;
+
+    // Days per week = 3
+    if (daysPerWeek === "3" && goalSelection === "loseWeight") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "3" && goalSelection === "buildMuscle") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "3" && goalSelection === "getStronger") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    }
+
+    // Days per week = 4
+    if (daysPerWeek === "4" && goalSelection === "loseWeight") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "4" && goalSelection === "buildMuscle") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "4" && goalSelection === "getStronger") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    }
+
+    // Days per week = 5
+    if (daysPerWeek === "5" && goalSelection === "loseWeight") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "5" && goalSelection === "buildMuscle") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    } else if (daysPerWeek === "5" && goalSelection === "getStronger") {
+      console.log(
+        "Classification Level:", classification,
+        "Days per Week:", daysPerWeek,
+        "Goal Selection:", goalSelection
+      );
+    }
+
+    // Saves the goals input data to the database
+    const collection = await db.collection("goals");
+
+    const result = await collection.insertOne({
+      classification,
+      daysPerWeek,
+      goalSelection
+    });
+
+    res.status(200).json({
+      classification,
+      daysPerWeek,
+      goalSelection
     });
 
   } catch (error) {
