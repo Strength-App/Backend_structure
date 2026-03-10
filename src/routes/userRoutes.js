@@ -29,7 +29,18 @@ router.post("/add", async (req, res) => {
             firstName,
             lastName,
             email,
-            password: hashedPassword
+            password: hashedPassword,
+            onboarding_complete: false,
+            gender: null,
+            current_bodyweight: null,
+            current_one_rep_maxes: {
+                squat: null,
+                bench: null,
+                deadlift: null
+            },
+            current_classification: null,
+            current_workout_id: null
+
         };
 
         const result = await collection.insertOne(new_user);
@@ -44,7 +55,7 @@ router.post("/add", async (req, res) => {
 // Login user
 router.post("/login", async (req, res) => {
     try{
-        let collection = await db.collection("users");
+        let collection = db.collection("users");
         const {email, password} = req.body;
 
         // find user email
