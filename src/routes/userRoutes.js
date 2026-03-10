@@ -1,6 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import db from "../config/database.js";
+//import getMongoClient from "mongodb";
 import { classification } from "../controllers/userController.js";
 import { goals } from "../controllers/userController.js";
 
@@ -13,7 +14,7 @@ const saltRounds = 10;
 // Add Users --> updated path to create-account
 router.post("/create-account", async (req, res) => {
     try{
-        const collection = await db.collection("users");
+        const collection = db.collection("users");
         const { firstName, lastName, email, password } = req.body;
         
         //Check if user already exist
@@ -28,7 +29,18 @@ router.post("/create-account", async (req, res) => {
             firstName,
             lastName,
             email,
-            password: hashedPassword
+            password: hashedPassword,
+            onboarding_complete: false,
+            gender: null,
+            current_bodyweight: null,
+            current_one_rep_maxes: {
+                squat: null,
+                bench: null,
+                deadlift: null
+            },
+            current_classification: null,
+            current_workout_id: null
+
         };
 
         const result = await collection.insertOne(new_user);
@@ -46,7 +58,7 @@ router.post("/create-account", async (req, res) => {
 // Login user
 router.post("/login", async (req, res) => {
     try{
-        let collection = await db.collection("users");
+        let collection = db.collection("users");
         const {email, password} = req.body;
 
         // find user email
@@ -61,8 +73,23 @@ router.post("/login", async (req, res) => {
         if (!isMatch){
             return res.status(400).send("Invalid credentials");
         }
+
+        const { name_first, name_last, bday, gender, current_bodyweight, current_one_rep_maxes, current_classification} = user;
+
+         res.status(200).json({ 
+        success: true,
+        user: {
+            email, 
+            name_first, 
+            name_last, 
+            bday, 
+            gender, 
+            current_bodyweight, 
+            current_one_rep_maxes, 
+            current_classification 
+        }
+        });
     
-        res.json({message: "Login succesful"});
     } catch (err){
         console.error(err);
         res.status(500).send("Login error")

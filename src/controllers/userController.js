@@ -3,7 +3,7 @@ import db from "../config/database.js";
 // Controller for handling user classification
 export const classification = async (req, res) => {
   try {
-    const { gender, benchPress, deadlift, squat, bodyWeight } = req.body;
+    const { email , gender, benchPress, deadlift, squat, bodyWeight } = req.body;
 
     // Converts input to numbers and calculates total one rep max
     const totalOneRepMax =
@@ -610,24 +610,29 @@ export const classification = async (req, res) => {
     }
 
     // Saves the classification data to the database
-    const collection = await db.collection("classifications");
+    //const collection = await db.collection("classifications");
 
-    const result = await collection.insertOne({
-      gender,
-      benchPress,
-      deadlift,
-      squat,
-      bodyWeight: weight,
-      totalOneRepMax,
-      classification
-    });
+    const users = db.collection("users")
+
+    await users.updateOne(
+      {email: email},
+      {
+        $set:{
+          gender,
+          current_bodyweight: weight,
+          current_one_rep_maxes: {
+            bench: Number(benchPress),
+            squat: Number(squat),
+            deadlift: Number(deadlift)
+          },
+          current_classification: classification,
+          onboarding_complete: true
+        }
+      }
+
+    );
 
     res.status(200).json({
-      gender,
-      benchPress,
-      deadlift,
-      squat,
-      bodyWeight: weight,
       totalOneRepMax,
       classification
     });
