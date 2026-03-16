@@ -18,7 +18,7 @@ export const classification = async (req, res) => {
 
     // Gender is male
     if (gender === "male" || gender === "other") {
-      
+
       // Weight class: under 120 lbs
       if (weight < 120) {
         if (totalOneRepMax < 394) {
@@ -337,7 +337,7 @@ export const classification = async (req, res) => {
 
     // Gender is female
     if (gender === "female") {
-      
+
       // Weight class: under 100 lbs
       if (weight < 100) {
         if (totalOneRepMax < 265) {
@@ -609,13 +609,15 @@ export const classification = async (req, res) => {
       }
     }
 
-    // Saves the classification data to the database
-     const users = db.collection("users")
+    // Save classification data to the database
+    // Note: onboarding_complete is NOT set here — it's set after the goals
+    // step in userRoutes.js once the workout is fully generated
+    const users = db.collection("users");
 
     await users.updateOne(
-      {email: email},
+      { email },
       {
-        $set:{
+        $set: {
           gender,
           current_bodyweight: weight,
           current_one_rep_maxes: {
@@ -623,108 +625,14 @@ export const classification = async (req, res) => {
             squat: Number(squat),
             deadlift: Number(deadlift)
           },
-          current_classification: classification,
-          onboarding_complete: true
+          current_classification: classification
         }
       }
-
     );
 
     res.status(200).json({
       totalOneRepMax,
       classification
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-
-// Controller for handling user goals
-export const goals = async (req, res) => {
-  try {
-    const { daysPerWeek, goalSelection, classification } = req.body;
-
-    // Days per week = 3
-    if (daysPerWeek === "3" && goalSelection === "loseWeight") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "3" && goalSelection === "buildMuscle") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "3" && goalSelection === "getStronger") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    }
-
-    // Days per week = 4
-    if (daysPerWeek === "4" && goalSelection === "loseWeight") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "4" && goalSelection === "buildMuscle") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "4" && goalSelection === "getStronger") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    }
-
-    // Days per week = 5
-    if (daysPerWeek === "5" && goalSelection === "loseWeight") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "5" && goalSelection === "buildMuscle") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    } else if (daysPerWeek === "5" && goalSelection === "getStronger") {
-      console.log(
-        "Classification Level:", classification,
-        "Days per Week:", daysPerWeek,
-        "Goal Selection:", goalSelection
-      );
-    }
-
-    // Saves the goals input data to the database
-    const collection = await db.collection("goals");
-
-  
-
-    const result = await collection.insertOne({
-      classification,
-      daysPerWeek,
-      goalSelection
-    });
-
-    res.status(200).json({
-      classification,
-      daysPerWeek,
-      goalSelection
     });
 
   } catch (error) {
