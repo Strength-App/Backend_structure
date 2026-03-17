@@ -147,7 +147,7 @@ router.post("/goals", async (req, res) => {
     }
 
     const templateDays = templates[0].days;
-    const WEEKS = 4;
+    const WEEKS = templates[0].weeks ?? templates[0].totalWeeks ?? templates[0].numWeeks ?? 4;
 
     // Build the full weeks structure with resolved exercises
     const weeks = Array.from({ length: WEEKS }, (_, wi) => ({
