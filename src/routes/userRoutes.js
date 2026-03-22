@@ -95,7 +95,7 @@ router.post("/login", async (req, res) => {
     res.status(200).json({
       success: true,
       user: {
-        _id: user._id,
+        _id: user._id.toString(),
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -322,6 +322,80 @@ router.patch("/workout/complete-day", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error completing day" });
+  }
+});
+
+// ------ User Profile Routes ───────────────────────────────────────────────────────
+router.get("/profile/:userId", async (req, res) => {
+  try {
+    const users = db.collection("users");
+
+    const user = await users.findOne(
+      { _id: new ObjectId(req.params.userId) },
+      { projection: { password: 0 } } // exclude password
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching user profile" });
+  }
+});
+
+router.put("/update/:userId", async (req, res) => {
+  try {
+    const users = db.collection("users");
+    const updates = {}
+
+    if (req.body.firstName !== undefined) updates.firstName = req.body.firstName
+    if (req.body.lastName !== undefined) updates.lastName = req.body.lastName
+    if (req.body.email !== undefined) updates.email = req.body.email
+    if (req.body.gender !== undefined) updates.gender = req.body.gender
+
+    await users.updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $set: updates }
+    )
+
+    res.status(200).json({ message: "User updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating user" });
+  }
+});
+
+router.put("/change-password/:userId", async (req, res) => {
+  try {
+    const users = db.collection("users");
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await users.findOne({ _id: new ObjectId(req.params.userId) });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ message: "Current password incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await users.updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $set: { password: hashedPassword } }
+    );
+
+    res.status(200).json({ message: "Password updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating password" });
   }
 });
 
