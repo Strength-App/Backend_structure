@@ -31,22 +31,22 @@ app.set("view-engine","react-html-parser")
 app.get("/home", cors(corsOptions), (req, res, next) => {
     res.sendFile(path.join(__dirname, "/src/index.html"));
 });
-
-app.get("/classification", cors(corsOptions), (req, res, next) => {
-    res.sendFile(path.join(__dirname, "/src/index.html"));
-});
-
-app.get("/goals", cors(corsOptions), (req, res, next) => {
-    res.sendFile(path.join(__dirname, "/src/index.html"));
-});
-
-app.get("/history", cors(corsOptions), (req, res, next) => {
-    res.sendFile(path.join(__dirname, "/src/index.html"));
-});
-
-app.get("/settings", cors(corsOptions), (req, res, next) => {
-    res.sendFile(path.join(__dirname, "/src/index.html"));
-});
+//
+// app.get("/classification", cors(corsOptions), (req, res, next) => {
+//     res.sendFile(path.join(__dirname, "/src/index.html"));
+// });
+//
+// app.get("/goals", cors(corsOptions), (req, res, next) => {
+//     res.sendFile(path.join(__dirname, "/src/index.html"));
+// });
+//
+// app.get("/history", cors(corsOptions), (req, res, next) => {
+//     res.sendFile(path.join(__dirname, "/src/index.html"));
+// });
+//
+// app.get("/settings", cors(corsOptions), (req, res, next) => {
+//     res.sendFile(path.join(__dirname, "/src/index.html"));
+// });
 
 // start the Express server
 app.listen(PORT, () => {

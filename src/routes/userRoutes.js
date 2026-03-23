@@ -30,6 +30,28 @@ const movementPatterns = {
   "Core": ["Plank", "Ab Wheel Rollouts", "Hanging Leg Raises", "Cable Crunches", "Decline Crunches", "Pallof Press", "Dead Bugs", "Suitcase Carries", "Farmer Carries"]
 };
 
+
+async function updatePersonalBest(userId, exercise, actualWeight) {
+  const usersCollection = db.collection("users");
+  const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+
+  if (!user) {
+    return null
+  }
+
+  const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
+  const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
+
+  if (actualWeight > currentPersonalBest) {
+    await usersCollection.updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { [`current_one_rep_maxes.${exercise}.${exercise}`]: actualWeight }}
+    );
+    return {isPersonalBest: true, previousPersonalBest: currentPersonalBest, newPersonalBest: actualWeight};
+  }
+  return {isPersonalBest: false, previousPersonalBest: currentPersonalBest,};
+}
+
 // ─── Auth Routes ─────────────────────────────────────────────────────────────
 
 // Create account
@@ -258,6 +280,10 @@ router.get("/workout/:userId", async (req, res) => {
   }
 });
 
+router.get("/workout/:userId/personal-bests", async (req, res) => {
+
+})
+
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
   try {
@@ -268,6 +294,18 @@ router.patch("/workout/log", async (req, res) => {
     }
 
     const workoutLogsCollection = db.collection("workout_logs");
+
+    // Check and update personal bests
+    let personalBestUpdate = null;
+    if (actualWeight !== undefined) {
+      // Fetch the exercise name from the workout log
+      const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(userId) });
+      const exercise = workout?.weeks[weekNum - 1]?.days[dayNum - 1]?.slots[slotIdx]?.exercise;
+
+      if (exercise) {
+        personalBestUpdate = await updatePersonalBest(userId, exercise, actualWeight);
+      }
+    }
 
     const updateFields = {};
     if (actualWeight !== undefined) {
@@ -286,7 +324,7 @@ router.patch("/workout/log", async (req, res) => {
       return res.status(404).json({ message: "Workout log not found" });
     }
 
-    res.status(200).json({ message: "Log updated" });
+    res.status(200).json({ message: "Log updated" , pbUpdate: personalBestUpdate});
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating log" });
