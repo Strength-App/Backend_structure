@@ -21,7 +21,7 @@ const movementPatterns = {
   "Posterior Upper Accessory": ["Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys", "Pullovers", "Cable Pullovers", "Shrugs", "DB Shrugs", "Trap Bar Shrugs", "YTWLs"],
   "Bicep Accessory": ["DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls", "Preacher Curls", "Cable Curls", "Rope Curls", "Incline DB Curls", "Concentration Curls", "Cross Body Hammer Curls"],
   "Hinge": ["Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Barbell Glute Bridges", "Single Leg RDLs", "Sumo Deadlift", "Good Mornings"],
-  "Squat Pattern": ["Front Squat", "SSB Squats", "Hack Squat Machine", "Pendulum Squat", "Leg Press", "Goblet Squat", "Zercher Squat"],
+  "Squat Pattern": ["Front Squat","Back Squats", "SSB Squats", "Hack Squat Machine", "Pendulum Squat", "Leg Press", "Goblet Squat", "Zercher Squat"],
   "Posterior Chain Accessory": ["Back Extensions", "Nordics", "Reverse Hypers", "GHD Raises", "Single Leg Hip Thrusts"],
   "Unilateral Lower": ["Bulgarians", "Walking Lunges", "ATG Lunges", "Reverse Lunges", "Step Ups"],
   "Isolation Lower": ["Leg Extensions", "Single Leg Extensions", "Seated Leg Curls", "Lying Leg Curls", "Abductor Machine", "Adductor Machine"],
@@ -39,13 +39,15 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
     return null
   }
 
-  const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
-  const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
+  // const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
+  // const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
+
+  const currentPersonalBest = user.personal_bests[exercise] ?? 0;
 
   if (actualWeight > currentPersonalBest) {
     await usersCollection.updateOne(
         { _id: new ObjectId(userId) },
-        { $set: { [`current_one_rep_maxes.${exercise}.${exercise}`]: actualWeight }}
+        { $set: { [`personal_bests.${exercise}`]: actualWeight }}
     );
     return {isPersonalBest: true, previousPersonalBest: currentPersonalBest, newPersonalBest: actualWeight};
   }
@@ -81,7 +83,9 @@ router.post("/create-account", async (req, res) => {
         deadlift: null
       },
       current_classification: null,
-      current_workout_id: null
+      current_workout_id: null,
+      personal_bests: {}
+
     };
 
     const result = await collection.insertOne(newUser);
@@ -233,14 +237,21 @@ router.post("/goals", async (req, res) => {
     };
 
     const result = await workoutLogsCollection.insertOne(workoutLog);
+    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
 
     // Link workout to user and mark onboarding complete
+    // Add personal bests from user's current_one_rep_maxes'
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
       {
         $set: {
           current_workout_id: result.insertedId,
-          onboarding_complete: true
+          onboarding_complete: true,
+          personal_bests: {
+            "Back Squats": user.current_one_rep_maxes.squat ?? 0,
+            "Bench Press": user.current_one_rep_maxes.bench ?? 0,
+            "RDLs": user.current_one_rep_maxes.deadlift ?? 0
+          }
         }
       }
     );
