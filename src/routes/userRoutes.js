@@ -246,7 +246,14 @@ router.get("/workout/:userId", async (req, res) => {
       return res.status(404).json({ message: "No workout found for this user" });
     }
 
-    const workout = await workoutLogsCollection.findOne({ _id: user.current_workout_id });
+    console.log("current_workout_id:", user.current_workout_id);
+
+    // Query by userId instead of _id — same as the PATCH routes
+    const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(req.params.userId) });
+
+    console.log("workout._id:", workout?._id);
+    console.log("w0,d0,s0 actualWeight:", workout?.weeks?.[0]?.days?.[0]?.slots?.[0]?.actualWeight);
+
     if (!workout) {
       return res.status(404).json({ message: "Workout log not found" });
     }
@@ -297,6 +304,7 @@ router.patch("/workout/log", async (req, res) => {
 router.patch("/workout/complete-day", async (req, res) => {
   try {
     const { userId, weekNum, dayNum } = req.body;
+    console.log("complete-day hit:", { userId, weekNum, dayNum }); // ← add this
 
     if (!userId || weekNum == null || dayNum == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -313,6 +321,8 @@ router.patch("/workout/complete-day", async (req, res) => {
         }
       }
     );
+
+    console.log("matchedCount:", result.matchedCount, "modifiedCount:", result.modifiedCount); // ← and this
 
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
