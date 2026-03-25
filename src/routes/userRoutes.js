@@ -130,7 +130,8 @@ router.post("/login", async (req, res) => {
         current_one_rep_maxes: user.current_one_rep_maxes,
         current_classification: user.current_classification,
         onboarding_complete: user.onboarding_complete,
-        current_workout_id: user.current_workout_id
+        current_workout_id: user.current_workout_id,
+        personal_bests: user.personal_bests
       }
     });
   } catch (err) {
@@ -233,7 +234,8 @@ router.post("/goals", async (req, res) => {
       daysPerWeek: Number(daysPerWeek),
       goalSelection,
       createdAt: new Date(),
-      weeks
+      weeks,
+      personalBest: updatePersonalBest(userId, classification, 0)
     };
 
     const result = await workoutLogsCollection.insertOne(workoutLog);
@@ -248,9 +250,9 @@ router.post("/goals", async (req, res) => {
           current_workout_id: result.insertedId,
           onboarding_complete: true,
           personal_bests: {
-            "Back Squats": user.current_one_rep_maxes.squat ?? 0,
+            "Squat": user.current_one_rep_maxes.squat ?? 0,
             "Bench Press": user.current_one_rep_maxes.bench ?? 0,
-            "RDLs": user.current_one_rep_maxes.deadlift ?? 0
+            "Deadlift": user.current_one_rep_maxes.deadlift ?? 0
           }
         }
       }
@@ -292,8 +294,23 @@ router.get("/workout/:userId", async (req, res) => {
 });
 
 router.get("/workout/:userId/personal-bests", async (req, res) => {
+  try {
 
-})
+    const usersCollection = db.collection("users");
+    const user = await usersCollection.findOne({ _id: new ObjectId(req.params.userId) });
+
+    if(!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.log("User's personal bests:", user.personal_bests);
+    res.status(200).json({ personal_bests: user.personal_bests  ?? {} });
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).json({ message: "Error fetching personal bests" });
+  }
+
+});
 
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
@@ -310,12 +327,13 @@ router.patch("/workout/log", async (req, res) => {
     let personalBestUpdate = null;
     if (actualWeight !== undefined) {
       // Fetch the exercise name from the workout log
-      const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(userId) });
+      const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(userId) });
       const exercise = workout?.weeks[weekNum - 1]?.days[dayNum - 1]?.slots[slotIdx]?.exercise;
 
       if (exercise) {
         personalBestUpdate = await updatePersonalBest(userId, exercise, actualWeight);
       }
+      if(personalBestUpdate?.isPersonalBest) console.log("Personal best updated:", personalBestUpdate.previousPersonalBest, "->", personalBestUpdate.newPersonalBest)
     }
 
     const updateFields = {};
@@ -341,6 +359,7 @@ router.patch("/workout/log", async (req, res) => {
     res.status(500).json({ message: "Error updating log" });
   }
 });
+
 
 // Mark a day as complete
 router.patch("/workout/complete-day", async (req, res) => {
