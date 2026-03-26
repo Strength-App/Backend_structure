@@ -44,7 +44,7 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
 
   const currentPersonalBest = user.personal_bests?.[exercise] ?? 0;
 
-  if (actualWeight > currentPersonalBest) {
+  if (actualWeight >= currentPersonalBest) {
     await usersCollection.updateOne(
         { _id: new ObjectId(userId) },
         { $set: { [`personal_bests.${exercise}`]: actualWeight }}
@@ -353,7 +353,7 @@ router.patch("/workout/log", async (req, res) => {
       return res.status(404).json({ message: "Workout log not found" });
     }
 
-    res.status(200).json({ message: "Log updated" , pbUpdate: personalBestUpdate});
+    res.status(200).json({ message: "Log updated" , pbUpdate: personalBestUpdate ? { ...personalBestUpdate, exercise } : null });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating log" });
