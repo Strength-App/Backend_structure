@@ -42,7 +42,7 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
   // const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
   // const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
 
-  const currentPersonalBest = user.personal_bests[exercise] ?? 0;
+  const currentPersonalBest = user.personal_bests?.[exercise] ?? 0;
 
   if (actualWeight > currentPersonalBest) {
     await usersCollection.updateOne(
