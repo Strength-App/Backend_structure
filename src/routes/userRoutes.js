@@ -325,6 +325,7 @@ router.patch("/workout/log", async (req, res) => {
 
     // Check and update personal bests
     let personalBestUpdate = null;
+    let exercise = null;
     if (actualWeight !== undefined) {
       // Fetch the exercise name from the workout log
       const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(userId) });
