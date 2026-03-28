@@ -23,6 +23,13 @@ const PERCENT_REF_1RM = {
   "Hinge":           "deadlift",
 };
 
+// For fixed-exercise slots (pattern: null), map the fixed name to the reference 1RM.
+const FIXED_EXERCISE_REF_1RM = {
+  "Bench Press": "bench",
+  "Squat":       "squat",
+  "Deadlift":    "deadlift",
+};
+
 /**
  * Parse "75%" or "80.5%" → fraction (0.75 / 0.805).  Returns null for anything else.
  */
@@ -250,10 +257,14 @@ router.post("/goals", async (req, res) => {
           const weekReps = hasProgression
             ? slot.progression[wi]?.reps
             : slot.reps;
-          const targetReps = Array.isArray(weekReps) ? weekReps[0] : weekReps;
+          const targetReps = Array.isArray(weekReps)
+            ? weekReps[0]
+            : typeof weekReps === 'string' && weekReps.includes(',')
+              ? parseInt(weekReps.split(',')[0].trim(), 10)
+              : weekReps;
 
           // Resolve reference 1RM for percentage-based weightNotes
-          const percentRefKey = PERCENT_REF_1RM[patternKey];
+          const percentRefKey = PERCENT_REF_1RM[patternKey] ?? FIXED_EXERCISE_REF_1RM[slot.fixed];
           const percentRef1rm = percentRefKey === "bench" ? bench1rm
             : percentRefKey === "squat" ? squat1rm
             : percentRefKey === "deadlift" ? deadlift1rm
@@ -284,13 +295,17 @@ router.post("/goals", async (req, res) => {
             const NA_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls"]);
             projectedWeight = NA_EXERCISES.has(exercise) ? "N/A" : "BW";
           } else if (typeof weekResolvedNote === "number") {
-            // weightNote was a percentage string — use the resolved lb value directly
+            // weightNote was a single percentage string — use the resolved lb value directly
             projectedWeight = weekResolvedNote;
-          } else if (slot.percent != null && exerciseMaxMap[exercise] != null) {
-            // slot.percent field — apply to user's logged exercise max
-            const raw = exerciseMaxMap[exercise] * slot.percent;
-            const floor = isBarbell ? 45 : 5;
-            projectedWeight = Math.max(floor, Math.round(raw / 5) * 5);
+          } else if (slot.percent != null) {
+            // slot.percent field — prefer user's logged exercise max, fall back to movement-pattern 1RM
+            const refMax = exerciseMaxMap[exercise] ?? percentRef1rm;
+            if (refMax != null) {
+              const floor = isBarbell ? 45 : 5;
+              projectedWeight = Math.max(floor, Math.round((refMax * slot.percent) / 5) * 5);
+            } else {
+              projectedWeight = null;
+            }
           } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes("%")) {
             // Per-set percentage weights live in weightNote — client resolves them individually.
             // Do not overwrite with a single AI prediction.
