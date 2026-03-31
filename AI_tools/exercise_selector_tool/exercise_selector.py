@@ -162,14 +162,26 @@ def select_exercise(
     )
 
     if not valid_pool:
-        raise ValueError(
-            f"No valid exercises remain for "
-            f"pattern='{movement_pattern}', strength_level='{strength_level}' "
-            f"after applying all constraint rules.\n"
-            f"  exercises_used_this_week    : {exercises_used_this_week}\n"
-            f"  exercises_used_last_mesocycle: {exercises_used_last_mesocycle}\n"
-            "Consider relaxing the mesocycle history or week assignments."
-        )
+        # Relax Rule 1 (weekly uniqueness) — allow a repeat within the week
+        all_exercises = MOVEMENT_PATTERNS[movement_pattern]
+        pool_no_weekly = get_valid_exercises_for_strength_level(all_exercises, movement_pattern, strength_level)
+        pool_no_weekly = apply_mesocycle_filter(pool_no_weekly, exercises_used_last_mesocycle)
+        if pool_no_weekly:
+            valid_pool = pool_no_weekly
+        else:
+            # Relax Rule 2 (mesocycle history) as well — just apply strength-level gating
+            pool_level_only = get_valid_exercises_for_strength_level(all_exercises, movement_pattern, strength_level)
+            if pool_level_only:
+                valid_pool = pool_level_only
+            else:
+                raise ValueError(
+                    f"No valid exercises remain for "
+                    f"pattern='{movement_pattern}', strength_level='{strength_level}' "
+                    f"after applying all constraint rules.\n"
+                    f"  exercises_used_this_week    : {exercises_used_this_week}\n"
+                    f"  exercises_used_last_mesocycle: {exercises_used_last_mesocycle}\n"
+                    "Consider relaxing the mesocycle history or week assignments."
+                )
 
     models = load_models(model_path)
     pattern_data = models[movement_pattern]

@@ -110,6 +110,7 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
     ],
     "Squat Pattern": [
         "Front Squat", "SSB Squats", "Goblet Squat", "Zercher Squat", "Bodyweight Squat",
+        "Squats", "Box Squats",
     ],
     "Posterior Chain Accessory": [
         "Back Extensions", "Bodyweight Back Extensions", "Nordics", "Reverse Hypers",
@@ -155,7 +156,7 @@ COMPOUND_EXERCISES: frozenset[str] = frozenset({
     "Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Sumo Deadlift",
     "Good Mornings", "Barbell Glute Bridges", "Single Leg RDLs",
     "Front Squat", "SSB Squats", "Hack Squat Machine", "Pendulum Squat",
-    "Leg Press", "Goblet Squat", "Zercher Squat",
+    "Leg Press", "Goblet Squat", "Zercher Squat", "Squats", "Box Squats",
     "Pullups", "Chin Ups", "Neutral Grip Pullups",
     "Lat Pulldowns", "Close Grip Lat Pulldowns",
     "Wide Grip Lat Pulldowns", "Single Arm Pulldowns",
@@ -184,46 +185,24 @@ _ADVANCED_PREFERRED: frozenset[str] = frozenset({
 # Strength-level gating (Rule 3)
 # ---------------------------------------------------------------------------
 
-# Beginner: foundational compound movements, machines, and bodyweight only.
-# Focus on learning technique before loading. Patterns not listed are unrestricted.
-_BEGINNER_WHITELISTS: dict[str, frozenset[str]] = {
-    "Horizontal Push":           frozenset({"Bench Press"}),
-    "Vertical Push":             frozenset({"Seated Military Press"}),
-    "Unilateral Push":           frozenset({"DB Flat Bench", "DB Shoulder Press"}),
-    "Tricep Accessory":          frozenset({"Tricep Pushdowns", "Tricep Extensions", "Dip Machine", "Overhead Tricep Extensions", "One Arm Extensions"}),
-    "Shoulder Accessory":        frozenset({"Lateral Raises", "Front Raises", "Band Pull Aparts"}),
-    "Chest Accessory":           frozenset({"Chest Fly Machine", "DB Chest Flys", "Pushups"}),
-    "Push Machine":              frozenset({"Chest Press Machine", "Shoulder Press Machine"}),
-    "Vertical Pull":             frozenset({"Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"}),
-    "Horizontal Pull":           frozenset({"Cable Row", "Chest Supported Row", "Single Arm Dumbbell Rows"}),
-    "Posterior Upper Accessory": frozenset({"Rear Delt Flys", "Machine Rear Delt Flys", "DB Shrugs"}),
-    "Bicep Accessory":           frozenset({"DB Curls", "Hammer Curls", "Cable Curls"}),
-    "Hinge":                     frozenset({"Bodyweight Hip Thrusts", "Bodyweight Glute Bridges", "Hip Thrusts", "Barbell Glute Bridges"}),
-    "Squat Pattern":             frozenset({"Goblet Squat", "Bodyweight Squat"}),
-    "Posterior Chain Accessory": frozenset({"Bodyweight Back Extensions", "Single Leg Hip Thrusts"}),
-    "Unilateral Lower":          frozenset({"Bodyweight Bulgarians", "Bodyweight Lunges", "Reverse Lunges", "Step Ups"}),
-    "Calves & Shins":            frozenset({"Bodyweight Calf Raises", "Calf Raise Machine"}),
-    "Machine Lower":             frozenset({"Leg Press", "Hack Squat Machine"}),
-    "Core":                      frozenset({"Plank", "Decline Crunches", "Pallof Press", "Dead Bugs"}),
-}
-
-# Novice: broader access than beginner — introduces basic barbells and free weights,
-# but still gates out advanced technique-dependent movements.
-# Patterns not listed are unrestricted at this level.
-_NOVICE_WHITELISTS: dict[str, frozenset[str]] = {
+# Beginner/Novice: same access — foundational compound movements, basic barbells,
+# free weights, machines, and bodyweight. Advanced technique-dependent movements
+# are still gated out. Patterns not listed are unrestricted at these levels.
+_BEGINNER_NOVICE_WHITELISTS: dict[str, frozenset[str]] = {
     "Horizontal Push":           frozenset({"Bench Press", "Incline Bench Press", "Floor Press"}),
     "Vertical Push":             frozenset({"Military Press", "Seated Military Press"}),
     "Unilateral Push":           frozenset({"DB Flat Bench", "DB Incline Bench", "DB Shoulder Press"}),
-    "Tricep Accessory":          frozenset({"Dips", "Tricep Pushdowns", "Tricep Extensions", "Dip Machine", "Overhead Tricep Extensions", "One Arm Extensions"}),
+    "Tricep Accessory":          frozenset({"Tricep Pushdowns", "Tricep Extensions", "Dip Machine", "Overhead Tricep Extensions", "One Arm Extensions"}),
     "Shoulder Accessory":        frozenset({"Front Raises", "Lateral Raises", "Cable Lateral Raises", "Face Pulls", "Band Pull Aparts"}),
-    "Chest Accessory":           frozenset({"Chest Fly Machine", "DB Chest Flys", "Pushups", "Weighted Pushups", "Floor Chest Flys"}),
-    "Vertical Pull":             frozenset({"Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns", "Pullups", "Chin Ups", "Neutral Grip Pullups"}),
+    "Chest Accessory":           frozenset({"Chest Fly Machine", "DB Chest Flys", "Pushups", "Floor Chest Flys"}),
+    "Push Machine":              frozenset({"Chest Press Machine", "Shoulder Press Machine"}),
+    "Vertical Pull":             frozenset({"Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"}),
     "Horizontal Pull":           frozenset({"Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows", "Single Arm Cable Rows", "Single Arm Dumbbell Rows", "Chest Supported Row"}),
     "Posterior Upper Accessory": frozenset({"Rear Delt Flys", "Machine Rear Delt Flys", "Shrugs", "DB Shrugs", "Cable Pullovers", "Trap Bar Shrugs"}),
     "Bicep Accessory":           frozenset({"DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls", "Cable Curls", "Rope Curls", "Preacher Curls"}),
     "Hinge":                     frozenset({"Hip Thrusts", "Bodyweight Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Barbell Glute Bridges", "Bodyweight Glute Bridges"}),
-    "Squat Pattern":             frozenset({"Goblet Squat", "Bodyweight Squat"}),
-    "Posterior Chain Accessory": frozenset({"Back Extensions", "Bodyweight Back Extensions", "Single Leg Hip Thrusts"}),
+    "Squat Pattern":             frozenset({"Squats", "Box Squats", "Goblet Squat", "Bodyweight Squat"}),
+    "Posterior Chain Accessory": frozenset({"Bodyweight Back Extensions", "Single Leg Hip Thrusts"}),
     "Unilateral Lower":          frozenset({"Bulgarians", "Bodyweight Bulgarians", "Walking Lunges", "Bodyweight Lunges", "Reverse Lunges", "Step Ups"}),
     "Calves & Shins":            frozenset({"Single Leg Calf Raises", "Calf Raise Machine", "Seated Calf Raises", "Bodyweight Calf Raises", "Tibia Raises"}),
     "Machine Lower":             frozenset({"Leg Press", "Hack Squat Machine", "Pendulum Squat"}),
@@ -238,22 +217,16 @@ def get_valid_exercises_for_strength_level(
 ) -> list[str]:
     """Apply Rule 3 (strength-level gating) and return permitted exercises.
 
-    Beginner  – restricted to foundational/machine/bodyweight exercises per pattern.
-    Novice    – broader access; introduces basic barbells and free weights,
-                gates out advanced technique-dependent movements.
+    Beginner/Novice – same access: foundational compound movements, basic barbells,
+                      free weights, machines, and bodyweight. Advanced
+                      technique-dependent movements are still gated out.
     Intermediate/Advanced/Elite – unrestricted access to all exercises.
     """
     if strength_level in ("intermediate", "advanced", "elite"):
         return list(exercises)
 
-    if strength_level == "beginner":
-        whitelist = _BEGINNER_WHITELISTS.get(pattern)
-        if whitelist is not None:
-            return [e for e in exercises if e in whitelist]
-        return list(exercises)
-
-    if strength_level == "novice":
-        whitelist = _NOVICE_WHITELISTS.get(pattern)
+    if strength_level in ("beginner", "novice"):
+        whitelist = _BEGINNER_NOVICE_WHITELISTS.get(pattern)
         if whitelist is not None:
             return [e for e in exercises if e in whitelist]
         return list(exercises)
