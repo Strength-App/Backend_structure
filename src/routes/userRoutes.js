@@ -322,7 +322,7 @@ router.get("/workout/:userId/personal-bests", async (req, res) => {
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
   try {
-    const { userId, weekNum, dayNum, slotIdx, actualWeight, notes } = req.body;
+    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, notes } = req.body;
 
     if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -346,7 +346,7 @@ router.patch("/workout/log", async (req, res) => {
 
     const updateFields = {};
     if (actualWeight !== undefined) {
-      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeight`] = actualWeight;
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeights.${setIdx}`] = actualWeight;
     }
     if (notes !== undefined) {
       updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.notes`] = notes;
@@ -360,7 +360,8 @@ router.patch("/workout/log", async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
     }
-
+    console.log("actualWeight received:", req.body.actualWeight, typeof req.body.actualWeight);
+    console.log("setIdx received:", req.body.setIdx);
     res.status(200).json({ message: "Log updated" , pbUpdate: personalBestUpdate ? { ...personalBestUpdate, exercise } : null });
   } catch (err) {
     console.error(err);
@@ -396,7 +397,6 @@ router.patch("/workout/complete-day", async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
     }
-
     res.status(200).json({ message: "Day marked complete" });
   } catch (err) {
     console.error(err);
