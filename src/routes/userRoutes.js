@@ -21,7 +21,7 @@ const movementPatterns = {
   "Posterior Upper Accessory": ["Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys", "Pullovers", "Cable Pullovers", "Shrugs", "DB Shrugs", "Trap Bar Shrugs", "YTWLs"],
   "Bicep Accessory": ["DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls", "Preacher Curls", "Cable Curls", "Rope Curls", "Incline DB Curls", "Concentration Curls", "Cross Body Hammer Curls"],
   "Hinge": ["Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Barbell Glute Bridges", "Single Leg RDLs", "Sumo Deadlift", "Good Mornings"],
-  "Squat Pattern": ["Front Squat","Back Squats", "SSB Squats", "Hack Squat Machine", "Pendulum Squat", "Leg Press", "Goblet Squat", "Zercher Squat"],
+  "Squat Pattern": ["Front Squat", "SSB Squats", "Hack Squat Machine", "Pendulum Squat", "Leg Press", "Goblet Squat", "Zercher Squat"],
   "Posterior Chain Accessory": ["Back Extensions", "Nordics", "Reverse Hypers", "GHD Raises", "Single Leg Hip Thrusts"],
   "Unilateral Lower": ["Bulgarians", "Walking Lunges", "ATG Lunges", "Reverse Lunges", "Step Ups"],
   "Isolation Lower": ["Leg Extensions", "Single Leg Extensions", "Seated Leg Curls", "Lying Leg Curls", "Abductor Machine", "Adductor Machine"],
@@ -29,30 +29,6 @@ const movementPatterns = {
   "Machine Lower": ["Leg Press", "Hack Squat", "Pendulum Squat", "Reverse Hack Squat"],
   "Core": ["Plank", "Ab Wheel Rollouts", "Hanging Leg Raises", "Cable Crunches", "Decline Crunches", "Pallof Press", "Dead Bugs", "Suitcase Carries", "Farmer Carries"]
 };
-
-
-async function updatePersonalBest(userId, exercise, actualWeight) {
-  const usersCollection = db.collection("users");
-  const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
-
-  if (!user) {
-    return null
-  }
-
-  // const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
-  // const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
-
-  const currentPersonalBest = user.personal_bests?.[exercise] ?? 0;
-
-  if (actualWeight >= currentPersonalBest) {
-    await usersCollection.updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { [`personal_bests.${exercise}`]: actualWeight }}
-    );
-    return {isPersonalBest: true, previousPersonalBest: currentPersonalBest, newPersonalBest: actualWeight};
-  }
-  return {isPersonalBest: false, previousPersonalBest: currentPersonalBest,};
-}
 
 // ─── Auth Routes ─────────────────────────────────────────────────────────────
 
@@ -83,9 +59,7 @@ router.post("/create-account", async (req, res) => {
         deadlift: null
       },
       current_classification: null,
-      current_workout_id: null,
-      personal_bests: {}
-
+      current_workout_id: null
     };
 
     const result = await collection.insertOne(newUser);
@@ -130,8 +104,7 @@ router.post("/login", async (req, res) => {
         current_one_rep_maxes: user.current_one_rep_maxes,
         current_classification: user.current_classification,
         onboarding_complete: user.onboarding_complete,
-        current_workout_id: user.current_workout_id,
-        personal_bests: user.personal_bests
+        current_workout_id: user.current_workout_id
       }
     });
   } catch (err) {
@@ -234,26 +207,18 @@ router.post("/goals", async (req, res) => {
       daysPerWeek: Number(daysPerWeek),
       goalSelection,
       createdAt: new Date(),
-      weeks,
-      personalBest: updatePersonalBest(userId, classification, 0)
+      weeks
     };
 
     const result = await workoutLogsCollection.insertOne(workoutLog);
-    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
 
     // Link workout to user and mark onboarding complete
-    // Add personal bests from user's current_one_rep_maxes'
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
       {
         $set: {
           current_workout_id: result.insertedId,
-          onboarding_complete: true,
-          personal_bests: {
-            "Squat": user.current_one_rep_maxes.squat ?? 0,
-            "Bench Press": user.current_one_rep_maxes.bench ?? 0,
-            "Deadlift": user.current_one_rep_maxes.deadlift ?? 0
-          }
+          onboarding_complete: true
         }
       }
     );
@@ -281,14 +246,7 @@ router.get("/workout/:userId", async (req, res) => {
       return res.status(404).json({ message: "No workout found for this user" });
     }
 
-    console.log("current_workout_id:", user.current_workout_id);
-
-    // Query by userId instead of _id — same as the PATCH routes
-    const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(req.params.userId) });
-
-    console.log("workout._id:", workout?._id);
-    console.log("w0,d0,s0 actualWeight:", workout?.weeks?.[0]?.days?.[0]?.slots?.[0]?.actualWeight);
-
+    const workout = await workoutLogsCollection.findOne({ _id: user.current_workout_id });
     if (!workout) {
       return res.status(404).json({ message: "Workout log not found" });
     }
@@ -300,29 +258,10 @@ router.get("/workout/:userId", async (req, res) => {
   }
 });
 
-router.get("/workout/:userId/personal-bests", async (req, res) => {
-  try {
-
-    const usersCollection = db.collection("users");
-    const user = await usersCollection.findOne({ _id: new ObjectId(req.params.userId) });
-
-    if(!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-    console.log("User's personal bests:", user.personal_bests);
-    res.status(200).json({ personal_bests: user.personal_bests  ?? {} });
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).json({ message: "Error fetching personal bests" });
-  }
-
-});
-
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
   try {
-    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, notes } = req.body;
+    const { userId, weekNum, dayNum, slotIdx, actualWeight, notes } = req.body;
 
     if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -330,23 +269,9 @@ router.patch("/workout/log", async (req, res) => {
 
     const workoutLogsCollection = db.collection("workout_logs");
 
-    // Check and update personal bests
-    let personalBestUpdate = null;
-    let exercise = null;
-    if (actualWeight !== undefined) {
-      // Fetch the exercise name from the workout log
-      const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(userId) });
-      const exercise = workout?.weeks[weekNum - 1]?.days[dayNum - 1]?.slots[slotIdx]?.exercise;
-
-      if (exercise) {
-        personalBestUpdate = await updatePersonalBest(userId, exercise, actualWeight);
-      }
-      if(personalBestUpdate?.isPersonalBest) console.log("Personal best updated:", personalBestUpdate.previousPersonalBest, "->", personalBestUpdate.newPersonalBest)
-    }
-
     const updateFields = {};
     if (actualWeight !== undefined) {
-      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeights.${setIdx}`] = actualWeight;
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeight`] = actualWeight;
     }
     if (notes !== undefined) {
       updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.notes`] = notes;
@@ -360,21 +285,18 @@ router.patch("/workout/log", async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
     }
-    console.log("actualWeight received:", req.body.actualWeight, typeof req.body.actualWeight);
-    console.log("setIdx received:", req.body.setIdx);
-    res.status(200).json({ message: "Log updated" , pbUpdate: personalBestUpdate ? { ...personalBestUpdate, exercise } : null });
+
+    res.status(200).json({ message: "Log updated" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating log" });
   }
 });
 
-
 // Mark a day as complete
 router.patch("/workout/complete-day", async (req, res) => {
   try {
     const { userId, weekNum, dayNum } = req.body;
-    console.log("complete-day hit:", { userId, weekNum, dayNum }); // ← add this
 
     if (!userId || weekNum == null || dayNum == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -392,11 +314,10 @@ router.patch("/workout/complete-day", async (req, res) => {
       }
     );
 
-    console.log("matchedCount:", result.matchedCount, "modifiedCount:", result.modifiedCount); // ← and this
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
     }
+
     res.status(200).json({ message: "Day marked complete" });
   } catch (err) {
     console.error(err);
