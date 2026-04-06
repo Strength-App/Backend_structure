@@ -8,7 +8,6 @@ import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
 
 
-
 const router = express.Router();
 const saltRounds = 10;
 
@@ -392,7 +391,7 @@ router.post("/goals", async (req, res) => {
     }
 
 
-
+    // Personal Best to log
     // Build the full weeks structure with resolved exercises
     // const weeks = Array.from({ length: WEEKS }, (_, wi) => ({
     //   weekNum: wi + 1,
