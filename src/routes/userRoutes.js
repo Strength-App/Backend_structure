@@ -522,8 +522,7 @@ router.get("/workout/:userId", async (req, res) => {
 
     console.log("current_workout_id:", user.current_workout_id);
 
-    // Query by userId instead of _id — same as the PATCH routes
-    const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(req.params.userId) });
+    const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(user.current_workout_id) });
 
     console.log("workout._id:", workout?._id);
     console.log("w0,d0,s0 actualWeight:", workout?.weeks?.[0]?.days?.[0]?.slots?.[0]?.actualWeight);
