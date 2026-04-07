@@ -560,7 +560,7 @@ router.get("/workout/:userId/personal-bests", async (req, res) => {
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
   try {
-    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, notes } = req.body;
+    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, actualReps, notes } = req.body;
 
     if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -576,7 +576,7 @@ router.patch("/workout/log", async (req, res) => {
     let exercise = null;
     if (actualWeight !== undefined) {
       // Fetch the exercise name from the workout log
-      const workout = await workoutLogsCollection.findOne({ userId: new ObjectId(userId) });
+      const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(user.current_workout_id) });
       const exercise = workout?.weeks[weekNum - 1]?.days[dayNum - 1]?.slots[slotIdx]?.exercise;
 
       if (exercise) {
@@ -589,12 +589,15 @@ router.patch("/workout/log", async (req, res) => {
     if (actualWeight !== undefined) {
       updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeights.${setIdx}`] = actualWeight;
     }
+    if (actualReps !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualReps.${setIdx}`] = actualReps;
+    }
     if (notes !== undefined) {
       updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.notes`] = notes;
     }
 
     const result = await workoutLogsCollection.updateOne(
-      { userId: new ObjectId(userId) },
+      { _id: new ObjectId(user.current_workout_id) },
       { $set: updateFields }
     );
 
@@ -631,7 +634,7 @@ router.patch("/workout/complete-day", async (req, res) => {
     }
 
     const result = await workoutLogsCollection.updateOne(
-      { userId: new ObjectId(userId) },
+      { _id: new ObjectId(user.current_workout_id) },
       {
         $set: {
           [`weeks.${weekNum - 1}.days.${dayNum - 1}.completed`]: true,
