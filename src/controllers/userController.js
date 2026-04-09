@@ -3,32 +3,21 @@ import db from "../config/database.js";
 // Controller for handling user classification
 export const classification = async (req, res) => {
   try {
-    const { email, gender, benchPress, deadlift, squat, bodyWeight } = req.body;
-    const users = db.collection("users");
-
-    // Get existing user from DB
-    const existingUser = await users.findOne({ email });
-
-    if (!existingUser) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-// Use DB gender if frontend didn't send one
-const userGender = gender || existingUser.gender;
+    const { email, gender, benchMax, deadliftMax, squatMax, bodyWeight } = req.body;
 
     // Converts input to numbers and calculates total one rep max
     const totalOneRepMax =
-      Number(benchPress) +
-      Number(deadlift) +
-      Number(squat);
+      Number(benchMax) +
+      Number(deadliftMax) +
+      Number(squatMax);
 
     // Convert body weight to a number
     const weight = Number(bodyWeight);
 
-    let classification;
+    let classification = "Unclassified";
 
     // Gender is male
-    if (userGender === "male" || userGender === "other") {
+    if (gender === "male" || gender === "other") {
 
       // Weight class: under 120 lbs
       if (weight < 120) {
@@ -347,7 +336,7 @@ const userGender = gender || existingUser.gender;
     }
 
     // Gender is female
-    if (userGender === "female") {
+    if (gender === "female") {
 
       // Weight class: under 100 lbs
       if (weight < 100) {
@@ -623,30 +612,29 @@ const userGender = gender || existingUser.gender;
     // Save classification data to the database
     // Note: onboarding_complete is NOT set here — it's set after the goals
     // step in userRoutes.js once the workout is fully generated
-    //const users = db.collection("users");
+    const users = db.collection("users");
 
-    // Build $set object dynamically
-    const updateFields = {
-      current_bodyweight: weight,
-      current_one_rep_maxes: {
-        bench: Number(benchPress),
-        squat: Number(squat),
-        deadlift: Number(deadlift),
-      },
-    };
-
-    // Only update gender if provided
-    if (gender !== undefined) updateFields.gender = gender;
-    // Only update classification if we actually determined one
-    if (classification) updateFields.current_classification = classification;
-
-await users.updateOne({ email }, { $set: updateFields });
+    await users.updateOne(
+      { email },
+      {
+        $set: {
+          gender,
+          current_bodyweight: weight,
+          current_one_rep_maxes: {
+            bench: Number(benchMax),
+            squat: Number(squatMax),
+            deadlift: Number(deadliftMax)
+          },
+          current_classification: classification
+        }
+      }
+    );
 
     res.status(200).json({
       totalOneRepMax,
-      classification,
-      gender: userGender,
+      classification
     });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
