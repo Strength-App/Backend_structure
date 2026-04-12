@@ -5,7 +5,7 @@ import users from "./src/routes/userRoutes.js"
 import * as path from "path";
 import dotenv from "dotenv"
 
-dotenv.config()
+dotenv.config({ path: path.resolve(".env") });
 
 const PORT = process.env.PORT || 5050;
 

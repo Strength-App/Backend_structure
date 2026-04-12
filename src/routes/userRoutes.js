@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { ObjectId } from "mongodb";
 import db from "../config/database.js";
 import { classification } from "../controllers/userController.js";
+import sendEmail from "../utils/sendEmail.js";
 import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES } from "../utils/exerciseSelector.js";
 import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
@@ -10,6 +11,20 @@ import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, b
 
 const router = express.Router();
 const saltRounds = 10;
+
+function formatChangedFields(fields) {
+  if (fields.length <= 1) return fields[0] ?? "profile details";
+  if (fields.length === 2) return `${fields[0]} and ${fields[1]}`;
+  return `${fields.slice(0, -1).join(", ")}, and ${fields.at(-1)}`;
+}
+
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 // ─── Percentage-weight helpers ────────────────────────────────────────────────
 
@@ -97,8 +112,13 @@ router.post("/create-account", async (req, res) => {
   try {
     const collection = db.collection("users");
     const { firstName, lastName, email, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    const existingUser = await collection.findOne({ email });
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address" });
+    }
+
+    const existingUser = await collection.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered" });
     }
@@ -108,7 +128,7 @@ router.post("/create-account", async (req, res) => {
     const newUser = {
       firstName,
       lastName,
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
       onboarding_complete: false,
       gender: null,
@@ -126,11 +146,27 @@ router.post("/create-account", async (req, res) => {
 
     const result = await collection.insertOne(newUser);
 
+    try {
+      await sendEmail({
+        to: normalizedEmail,
+        subject: "Welcome to MaxMethod",
+        text: `Hi ${firstName || "there"},
+
+Your MaxMethod account has been created successfully.
+
+You can now sign in and finish onboarding.
+
+- MaxMethod`,
+      });
+    } catch (emailErr) {
+      console.error("Create-account email failed:", emailErr.message);
+    }
+
     res.status(201).json({
       _id: result.insertedId,
       firstName,
       lastName,
-      email
+      email: normalizedEmail
     });
   } catch (err) {
     console.error(err);
@@ -143,8 +179,9 @@ router.post("/login", async (req, res) => {
   try {
     const collection = db.collection("users");
     const { email, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    const user = await collection.findOne({ email });
+    const user = await collection.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(400).json({ success: false, message: "User not found" });
     }
@@ -922,17 +959,76 @@ router.get("/profile/:userId", async (req, res) => {
 router.put("/update/:userId", async (req, res) => {
   try {
     const users = db.collection("users");
-    const updates = {}
+    const userId = new ObjectId(req.params.userId);
+    const existingUser = await users.findOne({ _id: userId });
 
-    if (req.body.firstName !== undefined) updates.firstName = req.body.firstName
-    if (req.body.lastName !== undefined) updates.lastName = req.body.lastName
-    if (req.body.email !== undefined) updates.email = req.body.email
-    if (req.body.gender !== undefined) updates.gender = req.body.gender
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const updates = {};
+    const changedFields = [];
+
+    if (req.body.firstName !== undefined) {
+      updates.firstName = req.body.firstName;
+      if (req.body.firstName !== existingUser.firstName) changedFields.push("first name");
+    }
+    if (req.body.lastName !== undefined) {
+      updates.lastName = req.body.lastName;
+      if (req.body.lastName !== existingUser.lastName) changedFields.push("last name");
+    }
+    if (req.body.email !== undefined) {
+      const normalizedEmail = normalizeEmail(req.body.email);
+
+      if (!isValidEmail(normalizedEmail)) {
+        return res.status(400).json({ message: "Please enter a valid email address" });
+      }
+
+      if (normalizedEmail !== existingUser.email) {
+        const emailInUse = await users.findOne({
+          _id: { $ne: userId },
+          email: normalizedEmail,
+        });
+
+        if (emailInUse) {
+          return res.status(400).json({ message: "Email already registered" });
+        }
+
+        changedFields.push("email address");
+      }
+
+      updates.email = normalizedEmail;
+    }
+    if (req.body.gender !== undefined) updates.gender = req.body.gender;
 
     await users.updateOne(
-      { _id: new ObjectId(req.params.userId) },
+      { _id: userId },
       { $set: updates }
-    )
+    );
+
+    if (changedFields.length > 0) {
+      const updatedFirstName = updates.firstName ?? existingUser.firstName;
+      const updatedLastName = updates.lastName ?? existingUser.lastName;
+      const updatedEmail = updates.email ?? existingUser.email;
+      const changedSummary = formatChangedFields(changedFields);
+      const fullName = [updatedFirstName, updatedLastName].filter(Boolean).join(" ").trim();
+
+      try {
+        await sendEmail({
+          to: updatedEmail,
+          subject: "Profile Updated",
+          text: `Hi ${updatedFirstName || fullName || "there"},
+
+Your ${changedSummary} ${changedFields.length === 1 ? "was" : "were"} updated successfully.
+
+If you did not make this change, login to the MaxMethod app and update your password.
+
+- MaxMethod`,
+        });
+      } catch (emailErr) {
+        console.error("Profile-update email failed:", emailErr.message);
+      }
+    }
 
     res.status(200).json({ message: "User updated" });
   } catch (err) {
@@ -964,6 +1060,22 @@ router.put("/change-password/:userId", async (req, res) => {
       { _id: new ObjectId(req.params.userId) },
       { $set: { password: hashedPassword } }
     );
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Password Changed",
+        text: `Hi ${user.firstName || "there"},
+
+Your MaxMethod password was updated successfully.
+
+If you did not make this change, reset your password immediately.
+
+- MaxMethod`,
+      });
+    } catch (emailErr) {
+      console.error("Password-change email failed:", emailErr.message);
+    }
 
     res.status(200).json({ message: "Password updated" });
   } catch (err) {
