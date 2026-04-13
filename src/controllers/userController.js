@@ -1,4 +1,6 @@
 import db from "../config/database.js";
+import sendEmail from "../utils/sendEmail.js";
+import { ObjectId } from "mongodb";
 
 // Controller for handling user classification
 export const classification = async (req, res) => {
@@ -638,5 +640,131 @@ export const classification = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const registerUser = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const users = db.collection("users");
+
+    const existingUser = await users.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    await users.insertOne({
+      name,
+      email,
+      password,
+    });
+
+    // send email when user is created
+    try {
+      await sendEmail({
+        to: email,
+        subject: "Welcome to MaxMethod 💪",
+        text: `Hey ${name},
+
+Your account has been successfully created!
+
+- MaxMethod`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    res.status(201).json({ message: "User created" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error creating user" });
+  }
+};
+
+export const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, gender } = req.body;
+
+    const users = db.collection("users");
+
+    const existingUser = await users.findOne({ _id: new ObjectId(id) });
+
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (email) updateFields.email = email;
+    if (gender) updateFields.gender = gender;
+
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    // send email when user profile is updated
+    try {
+      await sendEmail({
+        to: email || existingUser.email,
+        subject: "Profile Updated",
+        text: `Hi ${name || existingUser.name},
+
+Your profile was updated successfully.`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    return res.status(200).json({ message: "Profile updated" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error updating user" });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { currentPassword, newPassword } = req.body;
+
+    const users = db.collection("users");
+
+    const user = await users.findOne({ _id: new ObjectId(id) });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.password !== currentPassword) {
+      return res.status(400).json({ message: "Current password incorrect" });
+    }
+
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { password: newPassword } }
+    );
+
+    // send email when user password is changed
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Password Changed 🔐",
+        text: `Hi ${user.name},
+
+Your password was successfully updated.`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    return res.status(200).json({ message: "Password updated" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error changing password" });
   }
 };
