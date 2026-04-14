@@ -130,6 +130,14 @@ VARIATION_FAMILIES: dict[str, list[str]] = {
     "cable_core_variation":   ["Cable Crunches", "Pallof Press"],
     "crunch_variation":       ["Decline Crunches"],
     "carry_variation":        ["Suitcase Carries", "Farmer Carries"],
+
+    # -- Cardio ---------------------------------------------------------------
+    "treadmill_variation":  ["Treadmill", "Curved Treadmill"],
+    "bike_variation":       ["Bike", "Assault Bike", "Recumbent Bike"],
+    "elliptical_variation": ["Elliptical"],
+    "stairmaster_variation": ["Stairmaster"],
+    "rowing_variation":     ["Rowing Machine"],
+    "ski_erg_variation":    ["Ski Erg"],
 }
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,9 @@ const MOVEMENT_PATTERNS = {
   "Calves & Shins": ["Single Leg Calf Raises", "Calf Raise Machine", "Seated Calf Raises", "Bodyweight Calf Raises", "Weighted Calf Raises", "Donkey Calf Raises", "Tibia Raises", "Tibia Curls", "Banded Tibia Curls"],
   "Machine Lower": ["Leg Press", "Hack Squat Machine", "Pendulum Squat", "Reverse Hack Squat"],
   "Core": ["Plank", "Ab Wheel Rollouts", "Hanging Leg Raises", "Cable Crunches", "Decline Crunches", "Pallof Press", "Dead Bugs", "Suitcase Carries", "Farmer Carries"],
+  "Bodyweight Strength Upper": ["Pushups", "Incline Pushups", "Diamond Pushups", "Wide Pushups", "Dips", "Pullups", "Chin Ups", "Neutral Grip Pullups", "Inverted Bodyweight Row", "Burpees"],
+  "Bodyweight Lower": ["Bodyweight Squat", "Bodyweight Lunges", "Bodyweight ATG Lunges", "Bodyweight Bulgarians", "Bodyweight Hip Thrusts", "Bodyweight Glute Bridges", "Bodyweight Back Extensions", "Nordics", "GHD Raises", "Bodyweight Calf Raises"],
+  "Cardio": ["Treadmill", "Curved Treadmill", "Assault Bike", "Bike", "Recumbent Bike", "Elliptical", "Stairmaster", "Rowing Machine", "Ski Erg"],
 };
 
 function randomFallback(pattern) {
