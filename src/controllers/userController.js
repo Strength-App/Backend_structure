@@ -1,9 +1,22 @@
 import db from "../config/database.js";
+import sendEmail from "../utils/sendEmail.js";
+import { ObjectId } from "mongodb";
 
 // Controller for handling user classification
 export const classification = async (req, res) => {
   try {
     const { email, gender, benchPress, deadlift, squat, bodyWeight } = req.body;
+    const users = db.collection("users");
+
+    // Get existing user from DB
+    const existingUser = await users.findOne({ email });
+
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+// Use DB gender if frontend didn't send one
+const userGender = gender || existingUser.gender;
 
     // Converts input to numbers and calculates total one rep max
     const totalOneRepMax =
@@ -14,10 +27,10 @@ export const classification = async (req, res) => {
     // Convert body weight to a number
     const weight = Number(bodyWeight);
 
-    let classification = "Unclassified";
+    let classification;
 
     // Gender is male
-    if (gender === "male" || gender === "other") {
+    if (userGender === "male" || userGender === "other") {
 
       // Weight class: under 120 lbs
       if (weight < 120) {
@@ -336,7 +349,7 @@ export const classification = async (req, res) => {
     }
 
     // Gender is female
-    if (gender === "female") {
+    if (userGender === "female") {
 
       // Weight class: under 100 lbs
       if (weight < 100) {
@@ -612,31 +625,170 @@ export const classification = async (req, res) => {
     // Save classification data to the database
     // Note: onboarding_complete is NOT set here — it's set after the goals
     // step in userRoutes.js once the workout is fully generated
-    const users = db.collection("users");
+    //const users = db.collection("users");
 
-    await users.updateOne(
-      { email },
-      {
-        $set: {
-          gender,
-          current_bodyweight: weight,
-          current_one_rep_maxes: {
-            bench: Number(benchPress),
-            squat: Number(squat),
-            deadlift: Number(deadlift)
-          },
-          current_classification: classification
-        }
+    // Build $set object dynamically
+    const updateFields = {
+      current_bodyweight: weight,
+      current_one_rep_maxes: {
+        bench: Number(benchPress),
+        squat: Number(squat),
+        deadlift: Number(deadlift),
+      },
+    };
+
+    // Only update gender if provided
+    if (gender !== undefined) updateFields.gender = gender;
+    // Only update classification if we actually determined one
+    if (classification) updateFields.current_classification = classification;
+
+await users.updateOne({ email }, { $set: updateFields });
+    // Send email if classification exists
+    try {
+      if (classification) {
+        await sendEmail({
+          to: existingUser.email,
+          subject: "Your Strength Classification Results 💪",
+          text: `Classification: ${classification}`,
+        }).catch(err => console.error("Email failed:", err));
       }
-    );
+    } catch (err) {
+      console.error("Email failed:", err.message);
+    }
 
     res.status(200).json({
       totalOneRepMax,
-      classification
+      classification,
+      gender: userGender,
     });
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const registerUser = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const users = db.collection("users");
+
+    const existingUser = await users.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    await users.insertOne({
+      name,
+      email,
+      password,
+    });
+
+    // send email when user is created
+    try {
+      await sendEmail({
+        to: email,
+        subject: "Welcome to MaxMethod 💪",
+        text: `Hey ${name},
+
+Your account has been successfully created!
+
+- MaxMethod`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    res.status(201).json({ message: "User created" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error creating user" });
+  }
+};
+
+export const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, gender } = req.body;
+
+    const users = db.collection("users");
+
+    const existingUser = await users.findOne({ _id: new ObjectId(id) });
+
+    if (!existingUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (email) updateFields.email = email;
+    if (gender) updateFields.gender = gender;
+
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    // send email when user profile is updated
+    try {
+      await sendEmail({
+        to: email || existingUser.email,
+        subject: "Profile Updated",
+        text: `Hi ${name || existingUser.name},
+
+Your profile was updated successfully.`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    return res.status(200).json({ message: "Profile updated" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error updating user" });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { currentPassword, newPassword } = req.body;
+
+    const users = db.collection("users");
+
+    const user = await users.findOne({ _id: new ObjectId(id) });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.password !== currentPassword) {
+      return res.status(400).json({ message: "Current password incorrect" });
+    }
+
+    await users.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { password: newPassword } }
+    );
+
+    // send email when user password is changed
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Password Changed 🔐",
+        text: `Hi ${user.name},
+
+Your password was successfully updated.`,
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    return res.status(200).json({ message: "Password updated" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error changing password" });
   }
 };
