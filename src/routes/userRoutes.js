@@ -621,7 +621,6 @@ router.get("/workout/:userId", async (req, res) => {
     if (!user?.current_workout_id) {
       return res.status(404).json({ message: "No workout found for this user" });
     }
-
     console.log("current_workout_id:", user.current_workout_id);
 
     const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(user.current_workout_id) });
@@ -890,6 +889,32 @@ router.patch("/workout/log", async (req, res) => {
   }
 });
 
+// Update title of any workout log
+router.patch("/workout-log/:workoutLogId/title", async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ message: "Missing title" });
+
+    const result = await db.collection("workout_logs").updateOne(
+      { _id: new ObjectId(req.params.workoutLogId) },
+      { $set: { title } }
+    );
+
+    // Also update the matching program_log title so it stays in sync
+    await db.collection("program_logs").updateOne(
+      { workoutLogId: new ObjectId(req.params.workoutLogId) },
+      { $set: { title } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Workout log not found" });
+    }
+    res.status(200).json({ message: "Title updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating title" });
+  }
+});
 
 // Mark a day as complete
 router.patch("/workout/complete-day", async (req, res) => {
