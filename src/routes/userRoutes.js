@@ -43,6 +43,7 @@ const PERCENT_REF_1RM = {
 const FIXED_EXERCISE_REF_1RM = {
   "Bench Press": "bench",
   "Squat":       "squat",
+  "Back Squat":  "squat",
   "Deadlift":    "deadlift",
 };
 
@@ -76,7 +77,9 @@ function resolveWeightNotes(note, ref1rm, isBarbell) {
     const parts = note.split(",").map(s => s.trim());
     const resolved = parts.map(convert);
     // Only replace if every part was a percentage
-    return resolved.every(r => typeof r === "number") ? resolved : note;
+    // Return a string (not array) so resolveWeekValue on the client doesn't
+    // mistake this per-set array for a per-week progression array.
+    return resolved.every(r => typeof r === "number") ? resolved.join(", ") : note;
   }
   return convert(note ?? null);
 }
@@ -232,12 +235,7 @@ router.post("/goals", async (req, res) => {
     const workoutLogsCollection = db.collection("workout_logs");
     const programLogsCollection = db.collection("program_logs");
 
-    // Weight loss templates only exist for beginners right now — use "beginner"
-    // for the lookup regardless of the user's actual classification so the
-    // query always finds a match.
-    const templateClassification = goalSelection === "loseWeight"
-      ? "beginner"
-      : classification.toLowerCase();
+    const templateClassification = classification.toLowerCase();
 
     // The weight loss templates are stored with focus "weight_loss" (underscore)
     // while the frontend sends "loseWeight" (camelCase) — map at query time.
@@ -343,7 +341,9 @@ router.post("/goals", async (req, res) => {
               notes: "",
               superset: false,
               supersetGroup: null,
-              cardioSets:  slot.cardioSets  ?? [],
+              cardioSets:  slot.weeklyCardio
+                  ? (slot.weeklyCardio.find(w => w.week === weekNum)?.cardioSets ?? [])
+                  : (slot.cardioSets ?? []),
               cardioType:  slot.cardioType  ?? null,
               cardioNote:  slot.cardioNote  ?? null,
             });
@@ -422,6 +422,9 @@ router.post("/goals", async (req, res) => {
             } else {
               projectedWeight = null;
             }
+          } else if (Array.isArray(weekResolvedNote) && weekResolvedNote.every(v => typeof v === "number")) {
+            // Per-set weights are fully resolved in weightNote — no single projectedWeight needed
+            projectedWeight = null;
           } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes("%")) {
             // Per-set percentage weights live in weightNote — client resolves them individually.
             // Do not overwrite with a single AI prediction.
