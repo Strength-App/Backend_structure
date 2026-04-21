@@ -43,6 +43,7 @@ const PERCENT_REF_1RM = {
 const FIXED_EXERCISE_REF_1RM = {
   "Bench Press": "bench",
   "Squat":       "squat",
+  "Back Squat":  "squat",
   "Deadlift":    "deadlift",
 };
 
@@ -76,7 +77,9 @@ function resolveWeightNotes(note, ref1rm, isBarbell) {
     const parts = note.split(",").map(s => s.trim());
     const resolved = parts.map(convert);
     // Only replace if every part was a percentage
-    return resolved.every(r => typeof r === "number") ? resolved : note;
+    // Return a string (not array) so resolveWeekValue on the client doesn't
+    // mistake this per-set array for a per-week progression array.
+    return resolved.every(r => typeof r === "number") ? resolved.join(", ") : note;
   }
   return convert(note ?? null);
 }
@@ -95,7 +98,7 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
 
   const currentPersonalBest = user.personal_bests?.[exercise] ?? 0;
 
-  if (actualWeight >= currentPersonalBest) {
+  if (actualWeight > 0 && actualWeight > currentPersonalBest) {
     await usersCollection.updateOne(
         { _id: new ObjectId(userId) },
         { $set: { [`personal_bests.${exercise}`]: actualWeight }}
@@ -232,16 +235,22 @@ router.post("/goals", async (req, res) => {
     const workoutLogsCollection = db.collection("workout_logs");
     const programLogsCollection = db.collection("program_logs");
 
+    const templateClassification = classification.toLowerCase();
+
+    // The weight loss templates are stored with focus "weight_loss" (underscore)
+    // while the frontend sends "loseWeight" (camelCase) — map at query time.
+    const templateFocus = goalSelection === "loseWeight" ? "weight_loss" : goalSelection;
+
     // Find matching template
     const templates = await templateCollection.find({
-      "tags.classification": classification.toLowerCase(),
-      "tags.focus": goalSelection,
+      "tags.classification": templateClassification,
+      "tags.focus": templateFocus,
       "tags.daysPerWeek": Number(daysPerWeek)
     }).toArray();
 
     console.log("Templates found:", templates.length);
     console.log("First match title:", templates[0]?.title);
-    console.log("Query params:", classification.toLowerCase(), goalSelection, Number(daysPerWeek));
+    console.log("Query params:", templateClassification, goalSelection, Number(daysPerWeek));
 
     if (!templates.length) {
       return res.status(404).json({ message: "No matching workout template found" });
@@ -303,6 +312,45 @@ router.post("/goals", async (req, res) => {
         for (let si = 0; si < day.slots.length; si++) {
           const slot = day.slots[si];
           const patternKey = slot.pattern ?? slot.label;
+          const isCardioSlot = slot.label === 'Cardio';
+
+          // ── Cardio slots: skip weight prediction entirely ──────────────────
+          if (isCardioSlot) {
+            const exercise = await selectExercise(
+                patternKey,
+                strengthLevel,
+                usedThisWeek[patternKey] ?? [],
+                lastMesoExercises[patternKey] ?? [],
+                weekNum,
+                mesocycleNumber
+            );
+            if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
+            usedThisWeek[patternKey].push(exercise);
+
+            slots.push({
+              slotIdx: si,
+              label: 'Cardio',
+              fixed: false,
+              exercise,
+              sets: null,
+              reps: null,
+              weightNote: null,
+              progression: null,
+              projectedWeight: null,
+              actualWeight: null,
+              notes: "",
+              superset: false,
+              supersetGroup: null,
+              cardioSets:  slot.weeklyCardio
+                  ? (slot.weeklyCardio.find(w => w.week === weekNum)?.cardioSets ?? [])
+                  : (slot.cardioSets ?? []),
+              cardioType:  slot.cardioType  ?? null,
+              cardioNote:  slot.cardioNote  ?? null,
+            });
+            continue;
+          }
+
+          // ── Strength / regular slots ───────────────────────────────────────
           const hasProgression = Array.isArray(slot.progression) && slot.progression.length > 0;
 
           let exercise;
@@ -374,6 +422,9 @@ router.post("/goals", async (req, res) => {
             } else {
               projectedWeight = null;
             }
+          } else if (Array.isArray(weekResolvedNote) && weekResolvedNote.every(v => typeof v === "number")) {
+            // Per-set weights are fully resolved in weightNote — no single projectedWeight needed
+            projectedWeight = null;
           } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes("%")) {
             // Per-set percentage weights live in weightNote — client resolves them individually.
             // Do not overwrite with a single AI prediction.
@@ -411,7 +462,9 @@ router.post("/goals", async (req, res) => {
             progression: hasProgression ? slot.progression : null,
             projectedWeight,
             actualWeight: null,
-            notes: ""
+            notes: "",
+            superset: slot.superset ?? false,
+            supersetGroup: slot.supersetGroup ?? null,
           });
         }
 
@@ -488,7 +541,6 @@ router.post("/goals", async (req, res) => {
       goalSelection,
       createdAt: new Date(),
       weeks,
-      personalBest: updatePersonalBest(userId, classification, 0)
     };
 
     const result = await workoutLogsCollection.insertOne(workoutLog);
@@ -516,19 +568,20 @@ router.post("/goals", async (req, res) => {
         { $set: { isActive: false } }
     );
 
-    // Link workout to user and mark onboarding complete
-    // Add personal bests from user's current_one_rep_maxes'
+    // Link workout to user and mark onboarding complete.
+    // Use $max so personal_bests only update if the training max exceeds the all-time record.
+    // This preserves PRs earned in previous programs.
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
       {
         $set: {
           current_workout_id: result.insertedId,
           onboarding_complete: true,
-          personal_bests: {
-            "Squat": user.current_one_rep_maxes.squat ?? 0,
-            "Bench Press": user.current_one_rep_maxes.bench ?? 0,
-            "Deadlift": user.current_one_rep_maxes.deadlift ?? 0
-          }
+        },
+        $max: {
+          "personal_bests.Squat":        user.current_one_rep_maxes.squat ?? 0,
+          "personal_bests.Bench Press":  user.current_one_rep_maxes.bench ?? 0,
+          "personal_bests.Deadlift":     user.current_one_rep_maxes.deadlift ?? 0
         },
         $push: { program_log_ids: programResult.insertedId }
       }
@@ -544,6 +597,21 @@ router.post("/goals", async (req, res) => {
   }
 });
 
+// ─── Debug: inspect workout_templates collection ──────────────────────────────
+// Hit GET /api/users/debug-templates to see every template's tags
+router.get("/debug-templates", async (_req, res) => {
+  try {
+    const templates = await db.collection("workout_templates").find({}).toArray();
+    res.json(templates.map(t => ({
+      _id: t._id,
+      title: t.title,
+      tags: t.tags,
+    })));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ─── Workout Routes ───────────────────────────────────────────────────────────
 
 // Get current workout for a user
@@ -556,7 +624,6 @@ router.get("/workout/:userId", async (req, res) => {
     if (!user?.current_workout_id) {
       return res.status(404).json({ message: "No workout found for this user" });
     }
-
     console.log("current_workout_id:", user.current_workout_id);
 
     const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(user.current_workout_id) });
@@ -594,10 +661,171 @@ router.get("/workout/:userId/personal-bests", async (req, res) => {
 
 });
 
+// Get all-time exercise history for a user across every program
+router.get("/workout/:userId/exercise-history", async (req, res) => {
+  try {
+    const { exercise } = req.query;
+    if (!exercise) return res.status(400).json({ message: "Missing exercise query param" });
+
+    const usersCollection = db.collection("users");
+    const programLogsCollection = db.collection("program_logs");
+    const workoutLogsCollection = db.collection("workout_logs");
+
+    const user = await usersCollection.findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Collect all workoutLogIds from every program this user has ever had
+    const programLogIds = user.program_log_ids ?? [];
+    const programLogs = await programLogsCollection
+      .find({ _id: { $in: programLogIds.map(id => new ObjectId(id)) } })
+      .toArray();
+
+    const workoutLogIds = programLogs
+      .map(p => p.workoutLogId)
+      .filter(Boolean)
+      .map(id => new ObjectId(id));
+
+    const workoutLogs = await workoutLogsCollection
+      .find({ _id: { $in: workoutLogIds } })
+      .toArray();
+
+    // Scan every completed day in every workout log for the requested exercise
+    const results = [];
+    for (const wl of workoutLogs) {
+      for (const [wi, week] of (wl.weeks ?? []).entries()) {
+        for (const [di, day] of (week.days ?? []).entries()) {
+          if (!day.completed || !day.completedAt) continue;
+          for (const [si, slot] of (day.slots ?? []).entries()) {
+            if ((slot.exercise ?? '') !== exercise) continue;
+            const completedSets = slot.completedSets ?? {};
+            const hasCompleted = Object.values(completedSets).some(Boolean);
+            if (!hasCompleted) continue;
+
+            results.push({
+              date: day.completedAt,
+              dayTitle: day.title ?? `Day ${di + 1}`,
+              weekNumber: wi + 1,
+              programTitle: wl.title ?? null,
+              setCount: (() => {
+                const raw = Array.isArray(slot.sets) ? slot.sets[wi] : slot.sets;
+                return parseInt(raw) || 0;
+              })(),
+              reps: (() => {
+                const raw = Array.isArray(slot.reps) ? slot.reps[wi] : slot.reps;
+                return raw;
+              })(),
+              actualWeights: slot.actualWeights ?? {},
+              actualReps: slot.actualReps ?? {},
+              completedSets,
+            });
+          }
+        }
+      }
+    }
+
+    // Sort newest first
+    results.sort((a, b) => new Date(b.date) - new Date(a.date));
+    res.status(200).json({ history: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching exercise history" });
+  }
+});
+
+// All-time workout history across every program
+router.get("/workout/:userId/all-history", async (req, res) => {
+  try {
+    const usersCollection = db.collection("users");
+    const programLogsCollection = db.collection("program_logs");
+    const workoutLogsCollection = db.collection("workout_logs");
+
+    const user = await usersCollection.findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const programLogIds = user.program_log_ids ?? [];
+    const programLogs = await programLogsCollection
+      .find({ _id: { $in: programLogIds.map(id => new ObjectId(id)) } })
+      .toArray();
+
+    const workoutLogIds = programLogs
+      .map(p => p.workoutLogId)
+      .filter(Boolean)
+      .map(id => new ObjectId(id));
+
+    const workoutLogs = await workoutLogsCollection
+      .find({ _id: { $in: workoutLogIds } })
+      .toArray();
+
+    const sessions = [];
+    for (const wl of workoutLogs) {
+      for (const [wi, week] of (wl.weeks ?? []).entries()) {
+        for (const [di, day] of (week.days ?? []).entries()) {
+          if (!day.completed || !day.completedAt) continue;
+          const completedSlots = (day.slots ?? [])
+            .map(slot => ({
+              exercise: slot.exercise ?? slot.label ?? null,
+              sets: slot.sets,
+              reps: slot.reps,
+              actualWeights: slot.actualWeights ?? {},
+              actualReps: slot.actualReps ?? {},
+              completedSets: slot.completedSets ?? {},
+              weightNote: slot.weightNote ?? null,
+            }))
+            .filter(slot => Object.values(slot.completedSets).some(Boolean));
+
+          if (completedSlots.length === 0) continue;
+
+          sessions.push({
+            date: day.completedAt,
+            dayTitle: day.title ?? `Day ${di + 1}`,
+            weekNumber: wi + 1,
+            weekIndex: wi,
+            programTitle: wl.title ?? null,
+            slots: completedSlots,
+          });
+        }
+      }
+    }
+
+    // Sort oldest-first to compute running PRs chronologically
+    sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const runningMax = {}; // exercise -> best weight logged so far
+    for (const session of sessions) {
+      for (const slot of session.slots) {
+        const name = slot.exercise;
+        if (!name) continue;
+        const prev = runningMax[name] ?? 0;
+        let sessionBest = 0;
+        for (const [j, done] of Object.entries(slot.completedSets)) {
+          if (!done) continue;
+          const w = Number(slot.actualWeights[j] ?? 0);
+          if (w > sessionBest) sessionBest = w;
+        }
+        if (sessionBest > prev) {
+          slot.prHit = true;
+          slot.prWeight = sessionBest;
+          runningMax[name] = sessionBest;
+        } else {
+          slot.prHit = false;
+          slot.prWeight = null;
+        }
+      }
+    }
+
+    // Sort newest-first for display
+    sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    res.status(200).json({ sessions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching all-time history" });
+  }
+});
+
 // Update a slot's logged weight and notes
 router.patch("/workout/log", async (req, res) => {
   try {
-    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, actualReps, notes } = req.body;
+    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, actualReps, notes, setDone, cardioTime, cardioIntensity, cardioDistance } = req.body;
 
     if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -632,6 +860,18 @@ router.patch("/workout/log", async (req, res) => {
     if (notes !== undefined) {
       updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.notes`] = notes;
     }
+    if (setDone !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.completedSets.${setIdx}`] = setDone;
+    }
+    if (cardioTime !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioTimes.${setIdx}`] = cardioTime;
+    }
+    if (cardioIntensity !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioIntensities.${setIdx}`] = cardioIntensity;
+    }
+    if (cardioDistance !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioDistances.${setIdx}`] = cardioDistance;
+    }
 
     const result = await workoutLogsCollection.updateOne(
       { _id: new ObjectId(user.current_workout_id) },
@@ -652,6 +892,32 @@ router.patch("/workout/log", async (req, res) => {
   }
 });
 
+// Update title of any workout log
+router.patch("/workout-log/:workoutLogId/title", async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ message: "Missing title" });
+
+    const result = await db.collection("workout_logs").updateOne(
+      { _id: new ObjectId(req.params.workoutLogId) },
+      { $set: { title } }
+    );
+
+    // Also update the matching program_log title so it stays in sync
+    await db.collection("program_logs").updateOne(
+      { workoutLogId: new ObjectId(req.params.workoutLogId) },
+      { $set: { title } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Workout log not found" });
+    }
+    res.status(200).json({ message: "Title updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating title" });
+  }
+});
 
 // Mark a day as complete
 router.patch("/workout/complete-day", async (req, res) => {

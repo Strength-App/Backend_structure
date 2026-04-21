@@ -137,6 +137,10 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
         "Decline Crunches", "Pallof Press", "Dead Bugs",
         "Suitcase Carries", "Farmer Carries",
     ],
+    "Cardio": [
+        "Treadmill", "Curved Treadmill", "Assault Bike", "Bike",
+        "Recumbent Bike", "Elliptical", "Stairmaster", "Rowing Machine", "Ski Erg",
+    ],
 }
 
 # Ordered list of all strength levels (also used for one-hot encoding)
