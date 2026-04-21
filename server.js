@@ -12,8 +12,11 @@ const PORT = process.env.PORT || 5050;
 const app = express();
 const mongoURI = process.env.MONGODB_URI;
 const corsOptions = {
-    origin: ["http://localhost:5173"],
-    optionsSuccessStatus: 200
+    origin: [
+        'https://maxmethod-fitness.com',
+        'https://www.maxmethod-fitness.com',
+        'http://localhost:3000'
+    ]
 };
 
 const __dirname = path.resolve();
