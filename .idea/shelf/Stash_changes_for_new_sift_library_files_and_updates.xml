@@ -1,0 +1,12 @@
+<changelist name="Stash_changes_for_new_sift_library_files_and_updates" date="1776184453878" recycled="false">
+  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/Stash_changes_for_new_sift_library_files_and_updates/shelved.patch" />
+  <option name="DESCRIPTION" value="Stash changes for new sift library files and updates" />
+  <binary>
+    <option name="AFTER_PATH" value="node_modules/kareem/coverage/lcov-report/favicon.png" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Stash_changes_for_new_sift_library_files_and_updates/favicon.png" />
+  </binary>
+  <binary>
+    <option name="AFTER_PATH" value="node_modules/kareem/coverage/lcov-report/sort-arrow-sprite.png" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Stash_changes_for_new_sift_library_files_and_updates/sort-arrow-sprite.png" />
+  </binary>
+</changelist>
