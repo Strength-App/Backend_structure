@@ -84,6 +84,7 @@ function randomFallback(pattern) {
  * @param {string[]} exercisesUsedLastMeso  - exercises used last mesocycle for this pattern
  * @param {number}   weekNumber             - 1–6
  * @param {number}   mesocycleNumber        - 1, 2, 3, …
+ * @param {boolean}  isWeightLoss           - relaxes weekly uniqueness rule (Rule 1)
  * @returns {Promise<string>} exercise name
  */
 export async function selectExercise(
@@ -92,7 +93,8 @@ export async function selectExercise(
   exercisesUsedThisWeek,
   exercisesUsedLastMeso,
   weekNumber,
-  mesocycleNumber
+  mesocycleNumber,
+  isWeightLoss = false
 ) {
   try {
     const response = await fetch(`${SELECTOR_URL}/select-exercise`, {
@@ -105,6 +107,7 @@ export async function selectExercise(
         exercises_used_last_mesocycle: exercisesUsedLastMeso,
         week_number: weekNumber,
         mesocycle_number: mesocycleNumber,
+        is_weight_loss: isWeightLoss,
       }),
       signal: AbortSignal.timeout(5000),
     });

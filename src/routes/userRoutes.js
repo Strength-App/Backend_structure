@@ -297,11 +297,14 @@ router.post("/goals", async (req, res) => {
     // Build per-exercise max map for percentage-based weight calculation
     const exerciseMaxMap = await buildExerciseMaxMap(userId, db);
 
+    // Weight loss templates allow exercise repeats within a week and cardio repeats within a day
+    const isWeightLoss = templateFocus === "weight_loss";
+
     // Build weeks using the AI selector for each non-fixed slot
     const weeks = [];
     for (let wi = 0; wi < WEEKS; wi++) {
       const weekNum = wi + 1;
-      // Track exercises assigned so far this week per pattern (Rule 1: no weekly repeat)
+      // Track exercises assigned so far this week per pattern
       const usedThisWeek = {};
 
       const days = [];
@@ -326,7 +329,8 @@ router.post("/goals", async (req, res) => {
                   usedThisWeek[patternKey] ?? [],
                   lastMesoExercises[patternKey] ?? [],
                   weekNum,
-                  mesocycleNumber
+                  mesocycleNumber,
+                  isWeightLoss
               );
               if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
               usedThisWeek[patternKey].push(exercise);
@@ -370,7 +374,8 @@ router.post("/goals", async (req, res) => {
                     usedThisWeek[ex.pattern] ?? [],
                     lastMesoExercises[ex.pattern] ?? [],
                     weekNum,
-                    mesocycleNumber
+                    mesocycleNumber,
+                    isWeightLoss
                 );
                 if (!usedThisWeek[ex.pattern]) usedThisWeek[ex.pattern] = [];
                 usedThisWeek[ex.pattern].push(exName);
@@ -417,7 +422,8 @@ router.post("/goals", async (req, res) => {
                 usedThisWeek[patternKey] ?? [],
                 lastMesoExercises[patternKey] ?? [],
                 weekNum,
-                mesocycleNumber
+                mesocycleNumber,
+                isWeightLoss
             );
             if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
             usedThisWeek[patternKey].push(exercise);
