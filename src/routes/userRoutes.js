@@ -312,25 +312,30 @@ router.post("/goals", async (req, res) => {
         for (let si = 0; si < day.slots.length; si++) {
           const slot = day.slots[si];
           const patternKey = slot.pattern ?? slot.label;
-          const isCardioSlot = slot.label === 'Cardio';
+          const isCardioSlot = slot.pattern === 'Cardio' || slot.label === 'Cardio';
 
           // ── Cardio slots: skip weight prediction entirely ──────────────────
           if (isCardioSlot) {
-            const exercise = await selectExercise(
-                patternKey,
-                strengthLevel,
-                usedThisWeek[patternKey] ?? [],
-                lastMesoExercises[patternKey] ?? [],
-                weekNum,
-                mesocycleNumber
-            );
-            if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
-            usedThisWeek[patternKey].push(exercise);
+            let exercise;
+            if (typeof slot.fixed === 'string' && slot.fixed) {
+              exercise = slot.fixed;
+            } else {
+              exercise = await selectExercise(
+                  patternKey,
+                  strengthLevel,
+                  usedThisWeek[patternKey] ?? [],
+                  lastMesoExercises[patternKey] ?? [],
+                  weekNum,
+                  mesocycleNumber
+              );
+              if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
+              usedThisWeek[patternKey].push(exercise);
+            }
 
             slots.push({
               slotIdx: si,
               label: 'Cardio',
-              fixed: false,
+              fixed: typeof slot.fixed === 'string' ? slot.fixed : false,
               exercise,
               sets: null,
               reps: null,
@@ -346,6 +351,55 @@ router.post("/goals", async (req, res) => {
                   : (slot.cardioSets ?? []),
               cardioType:  slot.cardioType  ?? null,
               cardioNote:  slot.cardioNote  ?? null,
+            });
+            continue;
+          }
+
+          // ── Circuit slots (EMOM / AMRAP / For Time) ───────────────────────
+          const isCircuitSlot = Array.isArray(slot.exercises) && slot.exercises.length > 0;
+          if (isCircuitSlot) {
+            const resolvedExercises = [];
+            for (const ex of slot.exercises) {
+              let exName;
+              if (typeof ex.fixed === 'string' && ex.fixed) {
+                exName = ex.fixed;
+              } else if (ex.pattern) {
+                exName = await selectExercise(
+                    ex.pattern,
+                    strengthLevel,
+                    usedThisWeek[ex.pattern] ?? [],
+                    lastMesoExercises[ex.pattern] ?? [],
+                    weekNum,
+                    mesocycleNumber
+                );
+                if (!usedThisWeek[ex.pattern]) usedThisWeek[ex.pattern] = [];
+                usedThisWeek[ex.pattern].push(exName);
+              } else {
+                exName = ex.label;
+              }
+              resolvedExercises.push({
+                label: ex.label,
+                fixed: ex.fixed ?? null,
+                exercise: exName,
+                sets: ex.sets ?? null,
+                reps: ex.reps ?? null,
+                weightNote: ex.weightNote ?? null,
+                note: ex.note ?? null,
+              });
+            }
+            slots.push({
+              slotIdx: si,
+              label: slot.label ?? null,
+              fixed: false,
+              exercise: null,
+              sets: null,
+              reps: null,
+              weightNote: null,
+              projectedWeight: null,
+              circuitType: slot.circuitType ?? null,
+              totalTime: slot.totalTime ?? null,
+              circuitNote: slot.circuitNote ?? null,
+              exercises: resolvedExercises,
             });
             continue;
           }
