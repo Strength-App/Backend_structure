@@ -48,6 +48,22 @@ const FIXED_EXERCISE_REF_1RM = {
 };
 
 /**
+ * Returns true if any weightNote in the slot contains a percentage string.
+ * Used to decide whether to estimate an exercise's 1RM via AI.
+ */
+function hasPercentageWeightNotes(slot) {
+  const containsPercent = (note) => {
+    if (typeof note === "string") return note.includes("%");
+    if (Array.isArray(note)) return note.some(n => typeof n === "string" && n.includes("%"));
+    return false;
+  };
+  if (Array.isArray(slot.progression)) {
+    return slot.progression.some(p => containsPercent(p.weightNote));
+  }
+  return containsPercent(slot.weightNote) || containsPercent(slot.backoffWeightNote);
+}
+
+/**
  * Parse "75%" or "80.5%" → fraction (0.75 / 0.805).  Returns null for anything else.
  */
 function parsePercent(str) {
@@ -300,6 +316,11 @@ router.post("/goals", async (req, res) => {
     // Weight loss templates allow exercise repeats within a week and cardio repeats within a day
     const isWeightLoss = templateFocus === "weight_loss";
 
+    // Cache AI-estimated 1RMs for fixed exercises that have % weightNotes but no stored
+    // Big-3 mapping. Keyed by exercise name; populated lazily during week generation so
+    // the AI service is called at most once per exercise per program generation.
+    const estimated1rmCache = {};
+
     // Build weeks using the AI selector for each non-fixed slot
     const weeks = [];
     for (let wi = 0; wi < WEEKS; wi++) {
@@ -441,10 +462,26 @@ router.post("/goals", async (req, res) => {
 
           // Resolve reference 1RM for percentage-based weightNotes
           const percentRefKey = PERCENT_REF_1RM[patternKey] ?? FIXED_EXERCISE_REF_1RM[slot.fixed];
-          const percentRef1rm = percentRefKey === "bench" ? bench1rm
+          let percentRef1rm = percentRefKey === "bench" ? bench1rm
               : percentRefKey === "squat" ? squat1rm
                   : percentRefKey === "deadlift" ? deadlift1rm
                       : null;
+
+          // For fixed exercises with % weightNotes but no Big-3 1RM mapping (e.g. Military
+          // Press, Barbell Row, Barbell Curls), estimate the exercise's 1RM by asking the
+          // AI model to predict the weight at 1 rep. Cache per exercise to avoid redundant
+          // service calls across weeks.
+          if (percentRef1rm == null && hasPercentageWeightNotes(slot)) {
+            if (estimated1rmCache[exercise] === undefined) {
+              estimated1rmCache[exercise] = await predictWeight(
+                exercise, patternKey, strengthLevel,
+                squat1rm, bench1rm, deadlift1rm,
+                1, 1, 1  // 1 rep @ week 1 / meso 1 = stable 1RM estimate
+              );
+            }
+            percentRef1rm = estimated1rmCache[exercise];
+          }
+
           const isBarbell = BARBELL_EXERCISES.has(exercise);
 
           // For non-progression slots with a backoff set, merge backoff reps/weightNote
@@ -488,6 +525,11 @@ router.post("/goals", async (req, res) => {
           } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes("%")) {
             // Per-set percentage weights live in weightNote — client resolves them individually.
             // Do not overwrite with a single AI prediction.
+            projectedWeight = null;
+          } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes(",")) {
+            // Per-set values (resolved from comma-separated percentages) — let the client
+            // display each set's weight from weightNote. resolveWeightNotes returns a joined
+            // string (not an array) so the array check above never fires for this case.
             projectedWeight = null;
           } else {
             const baseWeight = targetReps
