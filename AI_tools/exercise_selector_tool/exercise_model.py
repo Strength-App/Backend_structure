@@ -91,7 +91,7 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
     "Horizontal Pull": [
         "Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows",
         "Single Arm Cable Rows", "Single Arm Dumbbell Rows",
-        "Chest Supported Row", "Meadows Row", "Seal Row", "Pendlay Row",
+        "Chest Supported Row", "Seal Row", "Pendlay Row",
     ],
     "Posterior Upper Accessory": [
         "Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys",
@@ -156,7 +156,7 @@ COMPOUND_EXERCISES: frozenset[str] = frozenset({
     "Bench Press", "Incline Bench Press", "Decline Bench Press", "Floor Press",
     "Military Press", "Seated Military Press", "Push Press",
     "Barbell Row", "Underhand Barbell Row", "Pendlay Row",
-    "T Bar Rows", "Seal Row", "Meadows Row",
+    "T Bar Rows", "Seal Row",
     "Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Sumo Deadlift",
     "Good Mornings", "Barbell Glute Bridges", "Single Leg RDLs",
     "Front Squat", "SSB Squats", "Hack Squat Machine", "Pendulum Squat",
@@ -171,7 +171,7 @@ COMPOUND_EXERCISES: frozenset[str] = frozenset({
 # Exercises preferred for advanced/elite: high-technique, heavy compound,
 # or specialized movements not suitable for beginners/novices.
 _ADVANCED_PREFERRED: frozenset[str] = frozenset({
-    "Pendlay Row", "Meadows Row", "Seal Row",
+    "Pendlay Row", "Seal Row",
     "Sumo Deadlift", "Good Mornings", "Single Leg RDLs",
     "Front Squat", "SSB Squats", "Zercher Squat",
     "Push Press",

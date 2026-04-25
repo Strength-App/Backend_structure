@@ -88,7 +88,7 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
     "Vertical Pull Cable Only":   ["Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"],
     "Horizontal Pull":            ["Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows",
                                    "Single Arm Cable Rows", "Single Arm Dumbbell Rows", "Chest Supported Row",
-                                   "Meadows Row", "Seal Row", "Pendlay Row"],
+                                   "Seal Row", "Pendlay Row"],
     "Posterior Upper Accessory":  ["Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys", "Pullovers",
                                    "Cable Pullovers", "Shrugs", "DB Shrugs", "Trap Bar Shrugs", "YTWLs"],
     "Bicep Accessory":            ["DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls",

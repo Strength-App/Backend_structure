@@ -72,7 +72,7 @@ VARIATION_FAMILIES: dict[str, list[str]] = {
     "barbell_row_variation": ["Barbell Row", "Underhand Barbell Row", "Pendlay Row"],
     "cable_row_variation":   ["Cable Row", "Single Arm Cable Rows", "T Bar Rows"],
     "db_row_variation":      ["Single Arm Dumbbell Rows", "Chest Supported Row"],
-    "specialty_row_variation": ["Meadows Row", "Seal Row"],
+    "specialty_row_variation": ["Seal Row"],
 
     # -- Posterior Upper Accessory --------------------------------------------
     "rear_delt_variation": [

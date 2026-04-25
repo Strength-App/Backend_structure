@@ -130,7 +130,6 @@ EXERCISE_MAP: dict[str, tuple[str, str]] = {
     "T-Bar Row":                      ("Horizontal Pull",           "T Bar Rows"),
     "Single Arm Row (Dumbbell)":      ("Horizontal Pull",           "Single Arm Dumbbell Rows"),
     "Chest Supported Row":            ("Horizontal Pull",           "Chest Supported Row"),
-    "Meadows Row":                    ("Horizontal Pull",           "Meadows Row"),
 
     # ── Posterior Upper Accessory ────────────────────────────────────────
     "Rear Delt Fly (Dumbbell)":       ("Posterior Upper Accessory", "Rear Delt Flys"),
