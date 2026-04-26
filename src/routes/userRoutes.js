@@ -749,6 +749,19 @@ router.get("/workout/:userId", async (req, res) => {
   }
 });
 
+// Check and update a personal best (used by logger and day pages)
+router.post("/workout/pb-check", async (req, res) => {
+  try {
+    const { userId, exercise, actualWeight } = req.body;
+    if (!userId || !exercise) return res.status(400).json({ message: "Missing fields" });
+    const result = await updatePersonalBest(userId, exercise, Number(actualWeight));
+    res.status(200).json(result ?? { isPersonalBest: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error checking personal best" });
+  }
+});
+
 router.get("/workout/:userId/personal-bests", async (req, res) => {
   try {
 
@@ -876,6 +889,38 @@ router.get("/workout/:userId/exercise-history", async (req, res) => {
       }
     }
 
+    // Scan quick_sessions for the same exercise
+    const quickSessions = await db.collection("quick_sessions")
+      .find({ userId: new ObjectId(req.params.userId) })
+      .toArray();
+
+    for (const qs of quickSessions) {
+      for (const ex of (qs.exercises ?? [])) {
+        if ((ex.name ?? '') !== exercise) continue;
+        const completedSets = {};
+        const actualWeights = {};
+        const actualReps = {};
+        (ex.sets ?? []).forEach((s, j) => {
+          completedSets[j] = s.done ?? false;
+          actualWeights[j] = s.weight ?? 0;
+          actualReps[j] = s.reps ?? 0;
+        });
+        const hasCompleted = Object.values(completedSets).some(Boolean);
+        if (!hasCompleted) continue;
+        results.push({
+          date: qs.date,
+          dayTitle: qs.title,
+          weekNumber: null,
+          programTitle: null,
+          setCount: ex.sets?.length ?? 0,
+          reps: null,
+          actualWeights,
+          actualReps,
+          completedSets,
+        });
+      }
+    }
+
     // Sort newest first
     results.sort((a, b) => new Date(b.date) - new Date(a.date));
     res.status(200).json({ history: results });
@@ -940,6 +985,31 @@ router.get("/workout/:userId/all-history", async (req, res) => {
       }
     }
 
+    // Merge in quick sessions
+    const quickSessions = await db.collection("quick_sessions")
+      .find({ userId: new ObjectId(req.params.userId) })
+      .toArray();
+
+    for (const qs of quickSessions) {
+      sessions.push({
+        date: qs.date,
+        dayTitle: qs.title,
+        weekNumber: null,
+        weekIndex: null,
+        programTitle: null,
+        isQuickSession: true,
+        slots: (qs.exercises ?? []).map(ex => ({
+          exercise: ex.name,
+          sets: ex.sets?.length ?? 0,
+          reps: null,
+          actualWeights: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.weight ?? 0])),
+          actualReps: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.reps ?? 0])),
+          completedSets: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.done ?? false])),
+          weightNote: null,
+        })),
+      });
+    }
+
     // Sort oldest-first to compute running PRs chronologically
     sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -972,6 +1042,26 @@ router.get("/workout/:userId/all-history", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching all-time history" });
+  }
+});
+
+// Save a quick (no-program) workout session
+router.post("/quick-sessions", async (req, res) => {
+  try {
+    const { userId, title, exercises } = req.body;
+    if (!userId) return res.status(400).json({ message: "Missing userId" });
+
+    await db.collection("quick_sessions").insertOne({
+      userId: new ObjectId(userId),
+      title: title || `Quick Workout`,
+      date: new Date().toISOString(),
+      exercises: exercises ?? [],
+    });
+
+    res.status(201).json({ message: "Session saved" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error saving session" });
   }
 });
 
@@ -1292,6 +1382,30 @@ router.get("/program-logs/:userId", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching program logs" });
+  }
+});
+
+// Deselect the active program
+router.patch("/program-logs/deselect", async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const programLogs = db.collection("program_logs");
+    const users = db.collection("users");
+
+    await programLogs.updateMany(
+      { userId: new ObjectId(userId) },
+      { $set: { isActive: false } }
+    );
+
+    await users.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { current_workout_id: null } }
+    );
+
+    res.status(200).json({ message: "Active program deselected" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error deselecting program" });
   }
 });
 
