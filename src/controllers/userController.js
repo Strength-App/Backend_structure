@@ -642,7 +642,27 @@ const userGender = gender || existingUser.gender;
     // Only update classification if we actually determined one
     if (classification) updateFields.current_classification = classification;
 
-await users.updateOne({ email }, { $set: updateFields });
+const classificationEntry = {
+      squat: Number(squat),
+      bench: Number(benchPress),
+      deadlift: Number(deadlift),
+      total: totalOneRepMax,
+      bodyweight: weight,
+      classification: classification || null,
+      gender: userGender,
+      date: new Date(),
+    };
+
+    await users.updateOne(
+      { email },
+      {
+        $set: updateFields,
+        $push: {
+          bodyweight_history: { value: weight, date: new Date() },
+          classification_history: classificationEntry,
+        },
+      }
+    );
     // Send email if classification exists
     try {
       if (classification) {

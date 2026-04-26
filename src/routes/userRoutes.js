@@ -159,8 +159,9 @@ router.post("/create-account", async (req, res) => {
       },
       current_classification: null,
       current_workout_id: null,
-      personal_bests: {}
-
+      personal_bests: {},
+      bodyweight_history: [],
+      classification_history: [],
     };
 
     const result = await collection.insertOne(newUser);
