@@ -12,7 +12,7 @@ const SELECTOR_URL = process.env.EXERCISE_SELECTOR_URL || "http://localhost:5001
 export const BARBELL_EXERCISES = new Set([
   "Bench Press", "Incline Bench Press", "Decline Bench Press", "Floor Press",
   "Military Press", "Seated Military Press", "Push Press",
-  "Close Grip Bench Press", "Skullcrushers",
+  "Close Grip Bench Press",
   "Barbell Row", "Underhand Barbell Row", "Pendlay Row", "Seal Row",
   "RDLs", "Sumo Deadlift", "Good Mornings", "Hip Thrusts", "Barbell Glute Bridges",
   "Trap Bar Deadlifts",
@@ -30,6 +30,8 @@ export const BODYWEIGHT_EXERCISES = new Set([
   "Dips",
   // Chest Accessory — unweighted only
   "Pushups",
+  // Shoulder Accessory — resistance band only, no external load
+  "Band Pull Aparts",
   // Posterior Chain Accessory — unweighted only
   "Nordics", "Bodyweight Back Extensions", "GHD Raises",
   // Calves & Shins — unweighted only
@@ -39,6 +41,16 @@ export const BODYWEIGHT_EXERCISES = new Set([
   // Lower body — bodyweight variants
   "Bodyweight Squat", "Bodyweight Lunges", "Bodyweight ATG Lunges",
   "Bodyweight Bulgarians", "Bodyweight Hip Thrusts", "Bodyweight Glute Bridges",
+]);
+
+// Exercises whose "reps" field represents a duration — display as time, not rep count.
+export const TIMED_EXERCISES = new Set([
+  "Plank",
+]);
+
+// Exercises whose "reps" field represents a distance — display as distance, not rep count.
+export const DISTANCE_EXERCISES = new Set([
+  "Farmer Carries", "Suitcase Carries",
 ]);
 
 // Mirrors the movement pattern lists in userRoutes.js — used for fallback only.

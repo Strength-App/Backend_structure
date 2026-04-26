@@ -4,7 +4,7 @@ import { ObjectId } from "mongodb";
 import db from "../config/database.js";
 import { classification } from "../controllers/userController.js";
 import sendEmail from "../utils/sendEmail.js";
-import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES } from "../utils/exerciseSelector.js";
+import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES, TIMED_EXERCISES, DISTANCE_EXERCISES } from "../utils/exerciseSelector.js";
 import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
 
@@ -505,7 +505,7 @@ router.post("/goals", async (req, res) => {
 
           let projectedWeight;
           if (BODYWEIGHT_EXERCISES.has(exercise)) {
-            const NA_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls"]);
+            const NA_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls", "Band Pull Aparts"]);
             projectedWeight = NA_EXERCISES.has(exercise) ? "N/A" : "BW";
           } else if (typeof weekResolvedNote === "number") {
             // weightNote was a single percentage string — use the resolved lb value directly
@@ -567,6 +567,9 @@ router.post("/goals", async (req, res) => {
             notes: "",
             superset: slot.superset ?? false,
             supersetGroup: slot.supersetGroup ?? null,
+            repsType: TIMED_EXERCISES.has(exercise) ? "time"
+              : DISTANCE_EXERCISES.has(exercise) ? "distance"
+              : null,
           });
         }
 
