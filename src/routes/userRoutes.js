@@ -242,9 +242,9 @@ router.post("/classification", classification);
 // Goals — generate workout, save to workout_logs, link to user
 router.post("/goals", async (req, res) => {
   try {
-    const { userId, classification, daysPerWeek, goalSelection } = req.body;
+    const { userId, classification, daysPerWeek, goalSelection, isBeginner } = req.body;
 
-    if (!userId || !classification || !daysPerWeek || !goalSelection) {
+    if (!userId || (!classification && !isBeginner) || !daysPerWeek || !goalSelection) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
@@ -253,7 +253,7 @@ router.post("/goals", async (req, res) => {
     const workoutLogsCollection = db.collection("workout_logs");
     const programLogsCollection = db.collection("program_logs");
 
-    const templateClassification = classification.toLowerCase();
+    const templateClassification = isBeginner ? "beginner" : classification.toLowerCase();
 
     // The weight loss templates are stored with focus "weight_loss" (underscore)
     // while the frontend sends "loseWeight" (camelCase) — map at query time.
@@ -300,7 +300,7 @@ router.post("/goals", async (req, res) => {
     const lastMesoExercises = lastWorkout ? extractExercisesByPattern(lastWorkout) : {};
 
     // Strength level must be lowercase for the AI selector
-    const strengthLevel = classification.toLowerCase();
+    const strengthLevel = isBeginner ? "beginner" : classification.toLowerCase();
 
     // Fetch user's 1RMs for weight prediction
     const userDoc = await usersCollection.findOne({ _id: new ObjectId(userId) });
