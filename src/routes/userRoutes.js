@@ -160,6 +160,7 @@ router.post("/create-account", async (req, res) => {
       current_classification: null,
       current_workout_id: null,
       personal_bests: {},
+      custom_exercises: [],
       bodyweight_history: [],
       classification_history: [],
     };
@@ -765,6 +766,52 @@ router.get("/workout/:userId/personal-bests", async (req, res) => {
     res.status(500).json({ message: "Error fetching personal bests" });
   }
 
+});
+
+// ─── Custom Exercises ────────────────────────────────────────────────────────
+
+router.get("/:userId/custom-exercises", async (req, res) => {
+  try {
+    const user = await db.collection("users").findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ custom_exercises: user.custom_exercises ?? [] });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching custom exercises" });
+  }
+});
+
+router.post("/:userId/custom-exercises", async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ message: "Exercise name required" });
+    const collection = db.collection("users");
+    const user = await collection.findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const trimmed = name.trim();
+    if ((user.custom_exercises ?? []).some(n => n.toLowerCase() === trimmed.toLowerCase())) {
+      return res.status(409).json({ message: "Exercise already exists" });
+    }
+    await collection.updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $push: { custom_exercises: trimmed } }
+    );
+    res.status(200).json({ custom_exercises: [...(user.custom_exercises ?? []), trimmed] });
+  } catch (err) {
+    res.status(500).json({ message: "Error adding custom exercise" });
+  }
+});
+
+router.delete("/:userId/custom-exercises/:name", async (req, res) => {
+  try {
+    const name = decodeURIComponent(req.params.name);
+    await db.collection("users").updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $pull: { custom_exercises: name } }
+    );
+    res.status(200).json({ message: "Removed" });
+  } catch (err) {
+    res.status(500).json({ message: "Error removing custom exercise" });
+  }
 });
 
 // Get all-time exercise history for a user across every program
