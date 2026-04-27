@@ -446,6 +446,41 @@ router.post("/goals", async (req, res) => {
               } else {
                 exName = ex.label;
               }
+              // Predict weight for this circuit exercise
+              let exProjectedWeight = null;
+              const isRestSlot = ex.pattern == null && ex.fixed == null;
+              if (!isRestSlot) {
+                const NA_CIRCUIT_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls", "Band Pull Aparts"]);
+                if (BODYWEIGHT_EXERCISES.has(exName)) {
+                  exProjectedWeight = NA_CIRCUIT_EXERCISES.has(exName) ? "N/A" : "BW";
+                } else {
+                  // Parse target reps: time-based ("1:00") → 10, comma list ("21,15,9") → first, else parse int
+                  let exTargetReps = null;
+                  const exRepsRaw = ex.reps;
+                  if (exRepsRaw != null) {
+                    if (typeof exRepsRaw === 'string' && exRepsRaw.includes(':')) {
+                      exTargetReps = 10;
+                    } else if (typeof exRepsRaw === 'string' && exRepsRaw.includes(',')) {
+                      exTargetReps = parseInt(exRepsRaw.split(',')[0].trim(), 10);
+                    } else {
+                      const parsed = parseInt(exRepsRaw, 10);
+                      if (!isNaN(parsed)) exTargetReps = parsed;
+                    }
+                  }
+                  const exPattern = ex.pattern ?? ex.label;
+                  const isBarbell = BARBELL_EXERCISES.has(exName);
+                  const baseWeight = exTargetReps
+                    ? await predictWeight(
+                        exName, exPattern, strengthLevel,
+                        squat1rm, bench1rm, deadlift1rm,
+                        exTargetReps, weekNum, mesocycleNumber
+                      )
+                    : null;
+                  const correctionFactor = getCorrectionFactor(weightCorrectionMap, exName, exPattern);
+                  exProjectedWeight = applyWeightCorrection(baseWeight, correctionFactor, isBarbell);
+                }
+              }
+
               resolvedExercises.push({
                 label: ex.label,
                 fixed: ex.fixed ?? null,
@@ -453,6 +488,7 @@ router.post("/goals", async (req, res) => {
                 sets: ex.sets ?? null,
                 reps: ex.reps ?? null,
                 weightNote: ex.weightNote ?? null,
+                projectedWeight: exProjectedWeight,
                 note: ex.note ?? null,
               });
             }
