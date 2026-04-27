@@ -40,7 +40,7 @@ app.use("/api/users", users)
 app.set("view-engine","react-html-parser")
 
 // Home, Classification, Goals pages, History, Settings
-app.get("/home", cors(corsOptions), (req, res, next) => {
+app.get("/health", cors(corsOptions), (req, res, next) => {
     res.sendFile(path.join(__dirname, "/src/index.html"));
 });
 //
