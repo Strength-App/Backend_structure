@@ -7,6 +7,8 @@ import sendEmail from "../utils/sendEmail.js";
 import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES, TIMED_EXERCISES, DISTANCE_EXERCISES } from "../utils/exerciseSelector.js";
 import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
+import { pickCardioMachine } from "../utils/cardioSelector.js";
+import { getRecentAssignments, recordAssignment } from "../utils/cardioAssignmentHistory.js";
 
 
 const router = express.Router();
@@ -317,6 +319,13 @@ router.post("/goals", async (req, res) => {
 
     // Weight loss templates allow exercise repeats within a week and cardio repeats within a day
     const isWeightLoss = templateFocus === "weight_loss";
+    const templateId = templates[0]._id;
+
+    // Pre-load cardio assignment history for weight loss templates so the anti-repetition
+    // penalty in the cardio selector has data without hitting Mongo per-slot.
+    const recentCardioAssignments = isWeightLoss
+      ? await getRecentAssignments(db, userId, templateId)
+      : [];
 
     // Cache AI-estimated 1RMs for fixed exercises that have % weightNotes but no stored
     // Big-3 mapping. Keyed by exercise name; populated lazily during week generation so
@@ -345,6 +354,36 @@ router.post("/goals", async (req, res) => {
             let exercise;
             if (typeof slot.fixed === 'string' && slot.fixed) {
               exercise = slot.fixed;
+            } else if (isWeightLoss) {
+              // Weight loss templates use the rules-based cardio selector instead of the RF model.
+              const { machine, context, candidateScores } = pickCardioMachine(
+                slot,
+                day.slots,
+                si,
+                di,
+                userDoc,
+                recentCardioAssignments
+              );
+              exercise = machine;
+
+              // Record for anti-repetition in subsequent slots this generation.
+              recentCardioAssignments.push(machine);
+              if (recentCardioAssignments.length > 5) recentCardioAssignments.shift();
+
+              // Persist to DB (best-effort, non-blocking).
+              recordAssignment(db, userId, templateId, machine).catch(() => {});
+
+              // Emit selection log for future ML training dataset.
+              console.info("[cardioSelector]", JSON.stringify({
+                userId,
+                templateId: templateId.toString(),
+                dayIndex: di,
+                slotIndex: si,
+                slotContext: context,
+                candidateScores,
+                chosenMachine: machine,
+                timestamp: new Date().toISOString(),
+              }));
             } else {
               exercise = await selectExercise(
                   patternKey,
@@ -353,7 +392,7 @@ router.post("/goals", async (req, res) => {
                   lastMesoExercises[patternKey] ?? [],
                   weekNum,
                   mesocycleNumber,
-                  isWeightLoss
+                  false
               );
               if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
               usedThisWeek[patternKey].push(exercise);
@@ -394,14 +433,16 @@ router.post("/goals", async (req, res) => {
                 exName = await selectExercise(
                     ex.pattern,
                     strengthLevel,
-                    usedThisWeek[ex.pattern] ?? [],
+                    isWeightLoss ? [] : (usedThisWeek[ex.pattern] ?? []),
                     lastMesoExercises[ex.pattern] ?? [],
                     weekNum,
                     mesocycleNumber,
                     isWeightLoss
                 );
-                if (!usedThisWeek[ex.pattern]) usedThisWeek[ex.pattern] = [];
-                usedThisWeek[ex.pattern].push(exName);
+                if (!isWeightLoss) {
+                  if (!usedThisWeek[ex.pattern]) usedThisWeek[ex.pattern] = [];
+                  usedThisWeek[ex.pattern].push(exName);
+                }
               } else {
                 exName = ex.label;
               }
@@ -442,14 +483,17 @@ router.post("/goals", async (req, res) => {
             exercise = await selectExercise(
                 patternKey,
                 strengthLevel,
-                usedThisWeek[patternKey] ?? [],
+                isWeightLoss ? [] : (usedThisWeek[patternKey] ?? []),
                 lastMesoExercises[patternKey] ?? [],
                 weekNum,
                 mesocycleNumber,
                 isWeightLoss
             );
-            if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
-            usedThisWeek[patternKey].push(exercise);
+            // Weight loss: exercises may repeat in the same week — no weekly tracking
+            if (!isWeightLoss) {
+              if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
+              usedThisWeek[patternKey].push(exercise);
+            }
           }
 
           // Determine target reps for this specific week for weight prediction

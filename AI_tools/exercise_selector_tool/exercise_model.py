@@ -325,8 +325,8 @@ def _generate_synthetic_sample(
 
     ~30% of samples are flagged as weight_loss=True.  For these:
       - Rule 1 (weekly uniqueness) is not applied when selecting the label.
-      - Cardio samples may have the same exercise repeated in exercises_used_this_week
-        to teach the model that same-day cardio repeats are valid.
+      - All patterns (including cardio) sample exercises_used_this_week with replacement
+        to teach the model that same-week (and same-day for cardio) repeats are valid.
     """
     all_exercises = MOVEMENT_PATTERNS[pattern]
 
@@ -341,8 +341,9 @@ def _generate_synthetic_sample(
     if not valid_for_level:
         return None
 
-    if is_weight_loss and pattern == "Cardio":
-        # Same-day cardio repeats are allowed — sample with replacement
+    if is_weight_loss:
+        # All patterns allow same-week repeats; cardio also allows same-day repeats.
+        # Sample with replacement so training data reflects real weight-loss programs.
         n_used_week = rng.randint(0, 3)
         exercises_used_this_week = [rng.choice(valid_for_level) for _ in range(n_used_week)]
     else:
