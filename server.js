@@ -12,9 +12,18 @@ const PORT = process.env.PORT || 5050;
 const app = express();
 const mongoURI = process.env.MONGODB_URI;
 const corsOptions = {
-    origin: ["http://localhost:5173",
-        "https://maxmethod-fitness.com",
-    "https://www.maxmethod-fitness.com",],
+    origin: function(origin, callback) {
+        const allowed = [
+            "http://localhost:5173",
+            "https://maxmethod-fitness.com",
+            "https://www.maxmethod-fitness.com"
+        ];
+        if (!origin || allowed.includes(origin) || origin.endsWith(".vercel.app")) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
     credentials: true,
     optionsSuccessStatus: 200
 };
