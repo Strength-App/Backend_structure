@@ -1406,6 +1406,39 @@ router.patch("/workout-log/:workoutLogId/weeks", async (req, res) => {
   }
 });
 
+// Swap an exercise across all weeks (regular slot or circuit exercise)
+router.patch("/workout-log/:workoutLogId/swap-exercise-all-weeks", async (req, res) => {
+  try {
+    const { dayIdx, slotIdx, newExercise, circuitExIdx } = req.body;
+    if (dayIdx == null || slotIdx == null || !newExercise) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const workout = await db.collection("workout_logs").findOne({
+      _id: new ObjectId(req.params.workoutLogId)
+    });
+    if (!workout) return res.status(404).json({ message: "Workout log not found" });
+
+    const updateFields = {};
+    for (let wi = 0; wi < workout.weeks.length; wi++) {
+      if (circuitExIdx != null) {
+        updateFields[`weeks.${wi}.days.${dayIdx}.slots.${slotIdx}.exercises.${circuitExIdx}.exercise`] = newExercise;
+      } else {
+        updateFields[`weeks.${wi}.days.${dayIdx}.slots.${slotIdx}.exercise`] = newExercise;
+      }
+    }
+
+    await db.collection("workout_logs").updateOne(
+      { _id: new ObjectId(req.params.workoutLogId) },
+      { $set: updateFields }
+    );
+
+    res.status(200).json({ message: "Exercise swapped across all weeks" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error swapping exercise" });
+  }
+});
+
 // Update a slot's exercise in any workout log
 router.patch("/workout-log/:workoutLogId/slot-exercise", async (req, res) => {
   try {
