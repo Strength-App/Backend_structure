@@ -88,7 +88,7 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
     "Vertical Pull Cable Only":   ["Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"],
     "Horizontal Pull":            ["Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows",
                                    "Single Arm Cable Rows", "Single Arm Dumbbell Rows", "Chest Supported Row",
-                                   "Meadows Row", "Seal Row", "Pendlay Row"],
+                                   "Seal Row", "Pendlay Row"],
     "Posterior Upper Accessory":  ["Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys", "Pullovers",
                                    "Cable Pullovers", "Shrugs", "DB Shrugs", "Trap Bar Shrugs", "YTWLs"],
     "Bicep Accessory":            ["DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls",
@@ -182,6 +182,59 @@ EXERCISE_RATIO_OVERRIDES: dict[str, tuple[str, float, float]] = {
     # Pullovers are heavier than flys but lighter than shrugs
     "Pullovers":              ("bench",    0.14, 0.28),
     "Cable Pullovers":        ("bench",    0.12, 0.24),
+
+    # ── Weight corrections from user testing ────────────────────────────────
+
+    # Dip Machine: plate-loaded stack, closer to a weighted dip than a light
+    # cable pushdown. Default tricep ratio (0.10–0.22 × bench) is too light.
+    "Dip Machine":            ("bench",    0.28, 0.50),
+
+    # Single Arm Cable Rows: unilateral, cable — default horizontal-pull ratio
+    # (0.40–0.65 × deadlift) is far too heavy for one-arm work.
+    "Single Arm Cable Rows":  ("bench",    0.18, 0.35),
+
+    # Seated Leg Curls: machine isolation, can handle heavier loads than the
+    # default isolation-lower ratio (0.10–0.22 × squat) allows.
+    "Seated Leg Curls":       ("squat",    0.22, 0.40),
+
+    # Trap Bar Shrugs: loaded like a deadlift-pattern movement — default
+    # posterior-upper-accessory ratio (0.08–0.22 × deadlift) undershoots badly.
+    "Trap Bar Shrugs":        ("deadlift", 0.55, 0.85),
+
+    # Adductor Machine: cable/machine stack, heavier than default iso-lower range.
+    "Adductor Machine":       ("squat",    0.22, 0.40),
+
+    # Cable Curls / Rope Curls: typically heavier than the default bicep-accessory
+    # ratio (0.10–0.22 × bench) produces.
+    "Cable Curls":            ("bench",    0.18, 0.32),
+    "Rope Curls":             ("bench",    0.16, 0.28),
+
+    # ATG Lunges: extreme range of motion with dumbbells — lighter than standard
+    # unilateral-lower pattern (0.15–0.32 × squat).
+    "ATG Lunges":             ("squat",    0.06, 0.15),
+
+    # Leg Extensions: machine isolation — can move heavier loads than default.
+    "Leg Extensions":         ("squat",    0.25, 0.45),
+
+    # Single Leg RDLs: unilateral dumbbell hinge — default hinge ratio
+    # (0.50–0.80 × deadlift) is far too heavy for a single-leg movement.
+    "Single Leg RDLs":        ("deadlift", 0.08, 0.18),
+
+    # DB Incline Bench: per-dumbbell weight, slightly lighter than DB flat bench.
+    "DB Incline Bench":       ("bench",    0.13, 0.24),
+
+    # DB Flat Bench: per-dumbbell weight, default unilateral-push range undershoots.
+    "DB Flat Bench":          ("bench",    0.20, 0.36),
+
+    # DB Floor Press: per-dumbbell weight, similar to DB flat bench.
+    "DB Floor Press":         ("bench",    0.18, 0.34),
+
+    # Abductor Machine: cable/machine stack, heavier than default iso-lower range.
+    "Abductor Machine":       ("squat",    0.22, 0.40),
+
+    # Weighted Pull Ups: represents ADDED weight only. Default vertical-pull ratio
+    # (0.12–0.28 × deadlift) produces unrealistically heavy added loads.
+    "Weighted Pull Ups":      ("bench",    0.08, 0.22),
 }
 
 

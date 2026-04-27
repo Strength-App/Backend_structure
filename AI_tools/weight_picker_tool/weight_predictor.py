@@ -44,7 +44,7 @@ BARBELL_EXERCISES = {
     # Vertical Push
     "Military Press", "Seated Military Press", "Push Press",
     # Tricep Accessory
-    "Close Grip Bench Press", "Skullcrushers",
+    "Close Grip Bench Press",
     # Horizontal Pull
     "Barbell Row", "Underhand Barbell Row", "Pendlay Row", "Seal Row",
     # Hinge

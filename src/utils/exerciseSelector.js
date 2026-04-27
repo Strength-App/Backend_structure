@@ -12,7 +12,7 @@ const SELECTOR_URL = process.env.EXERCISE_SELECTOR_URL || "http://localhost:5001
 export const BARBELL_EXERCISES = new Set([
   "Bench Press", "Incline Bench Press", "Decline Bench Press", "Floor Press",
   "Military Press", "Seated Military Press", "Push Press",
-  "Close Grip Bench Press", "Skullcrushers",
+  "Close Grip Bench Press",
   "Barbell Row", "Underhand Barbell Row", "Pendlay Row", "Seal Row",
   "RDLs", "Sumo Deadlift", "Good Mornings", "Hip Thrusts", "Barbell Glute Bridges",
   "Trap Bar Deadlifts",
@@ -30,6 +30,8 @@ export const BODYWEIGHT_EXERCISES = new Set([
   "Dips",
   // Chest Accessory — unweighted only
   "Pushups",
+  // Shoulder Accessory — resistance band only, no external load
+  "Band Pull Aparts",
   // Posterior Chain Accessory — unweighted only
   "Nordics", "Bodyweight Back Extensions", "GHD Raises",
   // Calves & Shins — unweighted only
@@ -39,6 +41,16 @@ export const BODYWEIGHT_EXERCISES = new Set([
   // Lower body — bodyweight variants
   "Bodyweight Squat", "Bodyweight Lunges", "Bodyweight ATG Lunges",
   "Bodyweight Bulgarians", "Bodyweight Hip Thrusts", "Bodyweight Glute Bridges",
+]);
+
+// Exercises whose "reps" field represents a duration — display as time, not rep count.
+export const TIMED_EXERCISES = new Set([
+  "Plank",
+]);
+
+// Exercises whose "reps" field represents a distance — display as distance, not rep count.
+export const DISTANCE_EXERCISES = new Set([
+  "Farmer Carries", "Suitcase Carries",
 ]);
 
 // Mirrors the movement pattern lists in userRoutes.js — used for fallback only.
@@ -52,7 +64,7 @@ const MOVEMENT_PATTERNS = {
   "Push Machine": ["Chest Press Machine", "Shoulder Press Machine", "Decline Press Machine", "Incline Press Machine"],
   "Vertical Pull": ["Pullups", "Weighted Pull Ups", "Chin Ups", "Weighted Chin Ups", "Neutral Grip Pullups", "Weighted Neutral Grip Pullups", "Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"],
   "Vertical Pull Cable Only": ["Lat Pulldowns", "Close Grip Lat Pulldowns", "Wide Grip Lat Pulldowns", "Single Arm Pulldowns"],
-  "Horizontal Pull": ["Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows", "Single Arm Cable Rows", "Single Arm Dumbbell Rows", "Chest Supported Row", "Meadows Row", "Seal Row", "Pendlay Row"],
+  "Horizontal Pull": ["Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows", "Single Arm Cable Rows", "Single Arm Dumbbell Rows", "Chest Supported Row", "Seal Row", "Pendlay Row"],
   "Posterior Upper Accessory": ["Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys", "Pullovers", "Cable Pullovers", "Shrugs", "DB Shrugs", "Trap Bar Shrugs", "YTWLs"],
   "Bicep Accessory": ["DB Curls", "Barbell Curls", "Ez Bar Curls", "Hammer Curls", "Preacher Curls", "Cable Curls", "Rope Curls", "Incline DB Curls", "Concentration Curls", "Cross Body Hammer Curls"],
   "Hinge": ["Hip Thrusts", "Bodyweight Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Barbell Glute Bridges", "Bodyweight Glute Bridges", "Single Leg RDLs", "Sumo Deadlift", "Good Mornings"],
@@ -84,6 +96,7 @@ function randomFallback(pattern) {
  * @param {string[]} exercisesUsedLastMeso  - exercises used last mesocycle for this pattern
  * @param {number}   weekNumber             - 1–6
  * @param {number}   mesocycleNumber        - 1, 2, 3, …
+ * @param {boolean}  isWeightLoss           - relaxes weekly uniqueness rule (Rule 1)
  * @returns {Promise<string>} exercise name
  */
 export async function selectExercise(
@@ -92,7 +105,8 @@ export async function selectExercise(
   exercisesUsedThisWeek,
   exercisesUsedLastMeso,
   weekNumber,
-  mesocycleNumber
+  mesocycleNumber,
+  isWeightLoss = false
 ) {
   try {
     const response = await fetch(`${SELECTOR_URL}/select-exercise`, {
@@ -105,6 +119,7 @@ export async function selectExercise(
         exercises_used_last_mesocycle: exercisesUsedLastMeso,
         week_number: weekNumber,
         mesocycle_number: mesocycleNumber,
+        is_weight_loss: isWeightLoss,
       }),
       signal: AbortSignal.timeout(5000),
     });

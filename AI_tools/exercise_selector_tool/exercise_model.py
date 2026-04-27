@@ -91,7 +91,7 @@ MOVEMENT_PATTERNS: dict[str, list[str]] = {
     "Horizontal Pull": [
         "Barbell Row", "Underhand Barbell Row", "Cable Row", "T Bar Rows",
         "Single Arm Cable Rows", "Single Arm Dumbbell Rows",
-        "Chest Supported Row", "Meadows Row", "Seal Row", "Pendlay Row",
+        "Chest Supported Row", "Seal Row", "Pendlay Row",
     ],
     "Posterior Upper Accessory": [
         "Scarecrows", "Rear Delt Flys", "Machine Rear Delt Flys",
@@ -156,7 +156,7 @@ COMPOUND_EXERCISES: frozenset[str] = frozenset({
     "Bench Press", "Incline Bench Press", "Decline Bench Press", "Floor Press",
     "Military Press", "Seated Military Press", "Push Press",
     "Barbell Row", "Underhand Barbell Row", "Pendlay Row",
-    "T Bar Rows", "Seal Row", "Meadows Row",
+    "T Bar Rows", "Seal Row",
     "Hip Thrusts", "RDLs", "Trap Bar Deadlifts", "Sumo Deadlift",
     "Good Mornings", "Barbell Glute Bridges", "Single Leg RDLs",
     "Front Squat", "SSB Squats", "Hack Squat Machine", "Pendulum Squat",
@@ -171,7 +171,7 @@ COMPOUND_EXERCISES: frozenset[str] = frozenset({
 # Exercises preferred for advanced/elite: high-technique, heavy compound,
 # or specialized movements not suitable for beginners/novices.
 _ADVANCED_PREFERRED: frozenset[str] = frozenset({
-    "Pendlay Row", "Meadows Row", "Seal Row",
+    "Pendlay Row", "Seal Row",
     "Sumo Deadlift", "Good Mornings", "Single Leg RDLs",
     "Front Squat", "SSB Squats", "Zercher Squat",
     "Push Press",
@@ -321,12 +321,19 @@ def _generate_synthetic_sample(
     pattern: str,
     rng: random.Random,
 ) -> dict[str, Any] | None:
-    """Generate a single synthetic training sample for *pattern*."""
+    """Generate a single synthetic training sample for *pattern*.
+
+    ~30% of samples are flagged as weight_loss=True.  For these:
+      - Rule 1 (weekly uniqueness) is not applied when selecting the label.
+      - Cardio samples may have the same exercise repeated in exercises_used_this_week
+        to teach the model that same-day cardio repeats are valid.
+    """
     all_exercises = MOVEMENT_PATTERNS[pattern]
 
     strength_level: str   = rng.choices(STRENGTH_LEVELS, weights=STRENGTH_WEIGHTS)[0]
     week_number: int      = rng.randint(1, 6)
     mesocycle_number: int = rng.randint(1, 4)
+    is_weight_loss: bool  = rng.random() < 0.30
 
     valid_for_level = get_valid_exercises_for_strength_level(
         all_exercises, pattern, strength_level
@@ -334,17 +341,28 @@ def _generate_synthetic_sample(
     if not valid_for_level:
         return None
 
-    max_used_week = max(0, len(valid_for_level) - 1)
-    n_used_week = rng.randint(0, min(max_used_week, 3))
-    exercises_used_this_week = rng.sample(valid_for_level, n_used_week)
+    if is_weight_loss and pattern == "Cardio":
+        # Same-day cardio repeats are allowed — sample with replacement
+        n_used_week = rng.randint(0, 3)
+        exercises_used_this_week = [rng.choice(valid_for_level) for _ in range(n_used_week)]
+    else:
+        max_used_week = max(0, len(valid_for_level) - 1)
+        n_used_week = rng.randint(0, min(max_used_week, 3))
+        exercises_used_this_week = rng.sample(valid_for_level, n_used_week)
 
     n_used_last_meso = rng.randint(0, min(len(all_exercises), 4))
     exercises_used_last_mesocycle = rng.sample(all_exercises, n_used_last_meso)
 
-    valid_pool = get_valid_exercises(
-        pattern, strength_level,
-        exercises_used_this_week, exercises_used_last_mesocycle,
-    )
+    if is_weight_loss:
+        # Rule 1 relaxed: label may be any exercise valid for the level/mesocycle
+        valid_pool = get_valid_exercises_for_strength_level(all_exercises, pattern, strength_level)
+        valid_pool = apply_mesocycle_filter(valid_pool, exercises_used_last_mesocycle)
+    else:
+        valid_pool = get_valid_exercises(
+            pattern, strength_level,
+            exercises_used_this_week, exercises_used_last_mesocycle,
+        )
+
     if not valid_pool:
         return None
 
@@ -359,6 +377,7 @@ def _generate_synthetic_sample(
         "strength_level":                strength_level,
         "week_number":                   week_number,
         "mesocycle_number":              mesocycle_number,
+        "is_weight_loss":                is_weight_loss,
         "exercises_used_this_week":      exercises_used_this_week,
         "exercises_used_last_mesocycle": exercises_used_last_mesocycle,
         "label":                         label,
@@ -409,8 +428,9 @@ def build_feature_vector(
     [0:5]       One-hot strength_level (beginner ... elite)
     [5]         week_number      (ordinal integer)
     [6]         mesocycle_number (ordinal integer)
-    [7:7+N]     Multi-hot exercises_used_this_week
-    [7+N:7+2N]  Multi-hot exercises_used_last_mesocycle
+    [7]         is_weight_loss   (0 or 1)
+    [8:8+N]     Multi-hot exercises_used_this_week
+    [8+N:8+2N]  Multi-hot exercises_used_last_mesocycle
 
     where N = len(exercises) for the given pattern.
     """
@@ -425,6 +445,8 @@ def build_feature_vector(
         dtype=np.float64,
     )
 
+    wl_vec = np.array([float(bool(sample.get("is_weight_loss", False)))], dtype=np.float64)
+
     used_week_vec = np.zeros(n, dtype=np.float64)
     for ex in sample["exercises_used_this_week"]:
         if ex in ex_index:
@@ -435,7 +457,7 @@ def build_feature_vector(
         if ex in ex_index:
             used_meso_vec[ex_index[ex]] = 1.0
 
-    return np.concatenate([sl_vec, ordinal_vec, used_week_vec, used_meso_vec])
+    return np.concatenate([sl_vec, ordinal_vec, wl_vec, used_week_vec, used_meso_vec])
 
 
 def build_dataset_for_pattern(

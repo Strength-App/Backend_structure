@@ -4,7 +4,7 @@ import { ObjectId } from "mongodb";
 import db from "../config/database.js";
 import { classification } from "../controllers/userController.js";
 import sendEmail from "../utils/sendEmail.js";
-import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES } from "../utils/exerciseSelector.js";
+import { selectExercise, extractExercisesByPattern, BODYWEIGHT_EXERCISES, BARBELL_EXERCISES, TIMED_EXERCISES, DISTANCE_EXERCISES } from "../utils/exerciseSelector.js";
 import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
 
@@ -46,6 +46,22 @@ const FIXED_EXERCISE_REF_1RM = {
   "Back Squat":  "squat",
   "Deadlift":    "deadlift",
 };
+
+/**
+ * Returns true if any weightNote in the slot contains a percentage string.
+ * Used to decide whether to estimate an exercise's 1RM via AI.
+ */
+function hasPercentageWeightNotes(slot) {
+  const containsPercent = (note) => {
+    if (typeof note === "string") return note.includes("%");
+    if (Array.isArray(note)) return note.some(n => typeof n === "string" && n.includes("%"));
+    return false;
+  };
+  if (Array.isArray(slot.progression)) {
+    return slot.progression.some(p => containsPercent(p.weightNote));
+  }
+  return containsPercent(slot.weightNote) || containsPercent(slot.backoffWeightNote);
+}
 
 /**
  * Parse "75%" or "80.5%" → fraction (0.75 / 0.805).  Returns null for anything else.
@@ -143,8 +159,10 @@ router.post("/create-account", async (req, res) => {
       },
       current_classification: null,
       current_workout_id: null,
-      personal_bests: {}
-
+      personal_bests: {},
+      custom_exercises: [],
+      bodyweight_history: [],
+      classification_history: [],
     };
 
     const result = await collection.insertOne(newUser);
@@ -297,11 +315,19 @@ router.post("/goals", async (req, res) => {
     // Build per-exercise max map for percentage-based weight calculation
     const exerciseMaxMap = await buildExerciseMaxMap(userId, db);
 
+    // Weight loss templates allow exercise repeats within a week and cardio repeats within a day
+    const isWeightLoss = templateFocus === "weight_loss";
+
+    // Cache AI-estimated 1RMs for fixed exercises that have % weightNotes but no stored
+    // Big-3 mapping. Keyed by exercise name; populated lazily during week generation so
+    // the AI service is called at most once per exercise per program generation.
+    const estimated1rmCache = {};
+
     // Build weeks using the AI selector for each non-fixed slot
     const weeks = [];
     for (let wi = 0; wi < WEEKS; wi++) {
       const weekNum = wi + 1;
-      // Track exercises assigned so far this week per pattern (Rule 1: no weekly repeat)
+      // Track exercises assigned so far this week per pattern
       const usedThisWeek = {};
 
       const days = [];
@@ -326,7 +352,8 @@ router.post("/goals", async (req, res) => {
                   usedThisWeek[patternKey] ?? [],
                   lastMesoExercises[patternKey] ?? [],
                   weekNum,
-                  mesocycleNumber
+                  mesocycleNumber,
+                  isWeightLoss
               );
               if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
               usedThisWeek[patternKey].push(exercise);
@@ -370,7 +397,8 @@ router.post("/goals", async (req, res) => {
                     usedThisWeek[ex.pattern] ?? [],
                     lastMesoExercises[ex.pattern] ?? [],
                     weekNum,
-                    mesocycleNumber
+                    mesocycleNumber,
+                    isWeightLoss
                 );
                 if (!usedThisWeek[ex.pattern]) usedThisWeek[ex.pattern] = [];
                 usedThisWeek[ex.pattern].push(exName);
@@ -417,7 +445,8 @@ router.post("/goals", async (req, res) => {
                 usedThisWeek[patternKey] ?? [],
                 lastMesoExercises[patternKey] ?? [],
                 weekNum,
-                mesocycleNumber
+                mesocycleNumber,
+                isWeightLoss
             );
             if (!usedThisWeek[patternKey]) usedThisWeek[patternKey] = [];
             usedThisWeek[patternKey].push(exercise);
@@ -435,10 +464,26 @@ router.post("/goals", async (req, res) => {
 
           // Resolve reference 1RM for percentage-based weightNotes
           const percentRefKey = PERCENT_REF_1RM[patternKey] ?? FIXED_EXERCISE_REF_1RM[slot.fixed];
-          const percentRef1rm = percentRefKey === "bench" ? bench1rm
+          let percentRef1rm = percentRefKey === "bench" ? bench1rm
               : percentRefKey === "squat" ? squat1rm
                   : percentRefKey === "deadlift" ? deadlift1rm
                       : null;
+
+          // For fixed exercises with % weightNotes but no Big-3 1RM mapping (e.g. Military
+          // Press, Barbell Row, Barbell Curls), estimate the exercise's 1RM by asking the
+          // AI model to predict the weight at 1 rep. Cache per exercise to avoid redundant
+          // service calls across weeks.
+          if (percentRef1rm == null && hasPercentageWeightNotes(slot)) {
+            if (estimated1rmCache[exercise] === undefined) {
+              estimated1rmCache[exercise] = await predictWeight(
+                exercise, patternKey, strengthLevel,
+                squat1rm, bench1rm, deadlift1rm,
+                1, 1, 1  // 1 rep @ week 1 / meso 1 = stable 1RM estimate
+              );
+            }
+            percentRef1rm = estimated1rmCache[exercise];
+          }
+
           const isBarbell = BARBELL_EXERCISES.has(exercise);
 
           // For non-progression slots with a backoff set, merge backoff reps/weightNote
@@ -462,7 +507,7 @@ router.post("/goals", async (req, res) => {
 
           let projectedWeight;
           if (BODYWEIGHT_EXERCISES.has(exercise)) {
-            const NA_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls"]);
+            const NA_EXERCISES = new Set(["Banded Tibia Raises", "Banded Tibia Curls", "Band Pull Aparts"]);
             projectedWeight = NA_EXERCISES.has(exercise) ? "N/A" : "BW";
           } else if (typeof weekResolvedNote === "number") {
             // weightNote was a single percentage string — use the resolved lb value directly
@@ -482,6 +527,11 @@ router.post("/goals", async (req, res) => {
           } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes("%")) {
             // Per-set percentage weights live in weightNote — client resolves them individually.
             // Do not overwrite with a single AI prediction.
+            projectedWeight = null;
+          } else if (typeof weekResolvedNote === "string" && weekResolvedNote.includes(",")) {
+            // Per-set values (resolved from comma-separated percentages) — let the client
+            // display each set's weight from weightNote. resolveWeightNotes returns a joined
+            // string (not an array) so the array check above never fires for this case.
             projectedWeight = null;
           } else {
             const baseWeight = targetReps
@@ -519,6 +569,9 @@ router.post("/goals", async (req, res) => {
             notes: "",
             superset: slot.superset ?? false,
             supersetGroup: slot.supersetGroup ?? null,
+            repsType: TIMED_EXERCISES.has(exercise) ? "time"
+              : DISTANCE_EXERCISES.has(exercise) ? "distance"
+              : null,
           });
         }
 
@@ -696,6 +749,19 @@ router.get("/workout/:userId", async (req, res) => {
   }
 });
 
+// Check and update a personal best (used by logger and day pages)
+router.post("/workout/pb-check", async (req, res) => {
+  try {
+    const { userId, exercise, actualWeight } = req.body;
+    if (!userId || !exercise) return res.status(400).json({ message: "Missing fields" });
+    const result = await updatePersonalBest(userId, exercise, Number(actualWeight));
+    res.status(200).json(result ?? { isPersonalBest: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error checking personal best" });
+  }
+});
+
 router.get("/workout/:userId/personal-bests", async (req, res) => {
   try {
 
@@ -713,6 +779,52 @@ router.get("/workout/:userId/personal-bests", async (req, res) => {
     res.status(500).json({ message: "Error fetching personal bests" });
   }
 
+});
+
+// ─── Custom Exercises ────────────────────────────────────────────────────────
+
+router.get("/:userId/custom-exercises", async (req, res) => {
+  try {
+    const user = await db.collection("users").findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ custom_exercises: user.custom_exercises ?? [] });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching custom exercises" });
+  }
+});
+
+router.post("/:userId/custom-exercises", async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ message: "Exercise name required" });
+    const collection = db.collection("users");
+    const user = await collection.findOne({ _id: new ObjectId(req.params.userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const trimmed = name.trim();
+    if ((user.custom_exercises ?? []).some(n => n.toLowerCase() === trimmed.toLowerCase())) {
+      return res.status(409).json({ message: "Exercise already exists" });
+    }
+    await collection.updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $push: { custom_exercises: trimmed } }
+    );
+    res.status(200).json({ custom_exercises: [...(user.custom_exercises ?? []), trimmed] });
+  } catch (err) {
+    res.status(500).json({ message: "Error adding custom exercise" });
+  }
+});
+
+router.delete("/:userId/custom-exercises/:name", async (req, res) => {
+  try {
+    const name = decodeURIComponent(req.params.name);
+    await db.collection("users").updateOne(
+      { _id: new ObjectId(req.params.userId) },
+      { $pull: { custom_exercises: name } }
+    );
+    res.status(200).json({ message: "Removed" });
+  } catch (err) {
+    res.status(500).json({ message: "Error removing custom exercise" });
+  }
 });
 
 // Get all-time exercise history for a user across every program
@@ -774,6 +886,38 @@ router.get("/workout/:userId/exercise-history", async (req, res) => {
             });
           }
         }
+      }
+    }
+
+    // Scan quick_sessions for the same exercise
+    const quickSessions = await db.collection("quick_sessions")
+      .find({ userId: new ObjectId(req.params.userId) })
+      .toArray();
+
+    for (const qs of quickSessions) {
+      for (const ex of (qs.exercises ?? [])) {
+        if ((ex.name ?? '') !== exercise) continue;
+        const completedSets = {};
+        const actualWeights = {};
+        const actualReps = {};
+        (ex.sets ?? []).forEach((s, j) => {
+          completedSets[j] = s.done ?? false;
+          actualWeights[j] = s.weight ?? 0;
+          actualReps[j] = s.reps ?? 0;
+        });
+        const hasCompleted = Object.values(completedSets).some(Boolean);
+        if (!hasCompleted) continue;
+        results.push({
+          date: qs.date,
+          dayTitle: qs.title,
+          weekNumber: null,
+          programTitle: null,
+          setCount: ex.sets?.length ?? 0,
+          reps: null,
+          actualWeights,
+          actualReps,
+          completedSets,
+        });
       }
     }
 
@@ -841,6 +985,31 @@ router.get("/workout/:userId/all-history", async (req, res) => {
       }
     }
 
+    // Merge in quick sessions
+    const quickSessions = await db.collection("quick_sessions")
+      .find({ userId: new ObjectId(req.params.userId) })
+      .toArray();
+
+    for (const qs of quickSessions) {
+      sessions.push({
+        date: qs.date,
+        dayTitle: qs.title,
+        weekNumber: null,
+        weekIndex: null,
+        programTitle: null,
+        isQuickSession: true,
+        slots: (qs.exercises ?? []).map(ex => ({
+          exercise: ex.name,
+          sets: ex.sets?.length ?? 0,
+          reps: null,
+          actualWeights: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.weight ?? 0])),
+          actualReps: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.reps ?? 0])),
+          completedSets: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.done ?? false])),
+          weightNote: null,
+        })),
+      });
+    }
+
     // Sort oldest-first to compute running PRs chronologically
     sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -873,6 +1042,26 @@ router.get("/workout/:userId/all-history", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching all-time history" });
+  }
+});
+
+// Save a quick (no-program) workout session
+router.post("/quick-sessions", async (req, res) => {
+  try {
+    const { userId, title, exercises } = req.body;
+    if (!userId) return res.status(400).json({ message: "Missing userId" });
+
+    await db.collection("quick_sessions").insertOne({
+      userId: new ObjectId(userId),
+      title: title || `Quick Workout`,
+      date: new Date().toISOString(),
+      exercises: exercises ?? [],
+    });
+
+    res.status(201).json({ message: "Session saved" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error saving session" });
   }
 });
 
@@ -1193,6 +1382,30 @@ router.get("/program-logs/:userId", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching program logs" });
+  }
+});
+
+// Deselect the active program
+router.patch("/program-logs/deselect", async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const programLogs = db.collection("program_logs");
+    const users = db.collection("users");
+
+    await programLogs.updateMany(
+      { userId: new ObjectId(userId) },
+      { $set: { isActive: false } }
+    );
+
+    await users.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { current_workout_id: null } }
+    );
+
+    res.status(200).json({ message: "Active program deselected" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error deselecting program" });
   }
 });
 

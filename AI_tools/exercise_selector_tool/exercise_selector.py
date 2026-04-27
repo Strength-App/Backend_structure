@@ -107,11 +107,17 @@ def _get_valid_pool(
     strength_level: str,
     exercises_used_this_week: list[str],
     exercises_used_last_mesocycle: list[str],
+    is_weight_loss: bool = False,
 ) -> list[str]:
-    """Return the fully-filtered exercise pool for a prediction context."""
+    """Return the fully-filtered exercise pool for a prediction context.
+
+    For weight loss templates Rule 1 (weekly uniqueness) is skipped — exercises
+    may repeat across days in the same week, and cardio may repeat in the same day.
+    """
     all_exercises = MOVEMENT_PATTERNS[pattern]
     pool = get_valid_exercises_for_strength_level(all_exercises, pattern, strength_level)
-    pool = apply_weekly_filter(pool, exercises_used_this_week)
+    if not is_weight_loss:
+        pool = apply_weekly_filter(pool, exercises_used_this_week)
     pool = apply_mesocycle_filter(pool, exercises_used_last_mesocycle)
     return pool
 
@@ -127,6 +133,7 @@ def select_exercise(
     exercises_used_last_mesocycle: list[str],
     week_number: int,
     mesocycle_number: int,
+    is_weight_loss: bool = False,
     model_path: str | Path = _DEFAULT_MODEL_PATH,
 ) -> str:
     """Return the single best exercise for the given program context.
@@ -134,6 +141,10 @@ def select_exercise(
     The Random Forest assigns probability scores to all candidate exercises.
     Hard constraint filters eliminate invalid ones (Rules 1, 2, 3).  The
     highest-probability surviving candidate is returned.
+
+    For weight loss templates (*is_weight_loss=True*) Rule 1 is skipped so
+    exercises may repeat across days in the week, and cardio may repeat in
+    the same day.
 
     Raises
     ------
@@ -159,6 +170,7 @@ def select_exercise(
         strength_level,
         exercises_used_this_week,
         exercises_used_last_mesocycle,
+        is_weight_loss=is_weight_loss,
     )
 
     if not valid_pool:
@@ -194,6 +206,7 @@ def select_exercise(
         "strength_level":                strength_level,
         "week_number":                   week_number,
         "mesocycle_number":              mesocycle_number,
+        "is_weight_loss":                is_weight_loss,
         "exercises_used_this_week":      exercises_used_this_week,
         "exercises_used_last_mesocycle": exercises_used_last_mesocycle,
     }

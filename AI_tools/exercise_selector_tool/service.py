@@ -39,6 +39,7 @@ def select_exercise_endpoint():
             exercises_used_last_mesocycle=data["exercises_used_last_mesocycle"],
             week_number=int(data["week_number"]),
             mesocycle_number=int(data["mesocycle_number"]),
+            is_weight_loss=bool(data.get("is_weight_loss", False)),
         )
         return jsonify({"exercise": exercise})
 
