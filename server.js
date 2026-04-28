@@ -11,8 +11,14 @@ const PORT = process.env.PORT || 5050;
 
 const app = express();
 const mongoURI = process.env.MONGODB_URI;
+
 const corsOptions = {
-    origin: ["http://localhost:5173"],
+    origin: [
+        "http://localhost:5173",
+        "https://www.maxmethod-fitness.com",
+        "https://maxmethod-fitness.com",
+    ],
+    credentials: true,
     optionsSuccessStatus: 200
 };
 
@@ -31,24 +37,8 @@ app.set("view-engine","react-html-parser")
 app.get("/home", cors(corsOptions), (req, res, next) => {
     res.sendFile(path.join(__dirname, "/src/index.html"));
 });
-//
-// app.get("/classification", cors(corsOptions), (req, res, next) => {
-//     res.sendFile(path.join(__dirname, "/src/index.html"));
-// });
-//
-// app.get("/goals", cors(corsOptions), (req, res, next) => {
-//     res.sendFile(path.join(__dirname, "/src/index.html"));
-// });
-//
-// app.get("/history", cors(corsOptions), (req, res, next) => {
-//     res.sendFile(path.join(__dirname, "/src/index.html"));
-// });
-//
-// app.get("/settings", cors(corsOptions), (req, res, next) => {
-//     res.sendFile(path.join(__dirname, "/src/index.html"));
-// });
 
 // start the Express server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server listening on port ${PORT}`);
 });
