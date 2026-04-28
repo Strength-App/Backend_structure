@@ -5,7 +5,7 @@ import { ObjectId } from "mongodb";
 // Controller for handling user classification
 export const classification = async (req, res) => {
   try {
-    const { email, gender, benchPress, deadlift, squat, bodyWeight } = req.body;
+    const { email, gender, benchPress, deadlift, squat, bodyWeight, isBeginner } = req.body;
     const users = db.collection("users");
 
     // Get existing user from DB
@@ -28,9 +28,12 @@ const userGender = gender || existingUser.gender;
     const weight = Number(bodyWeight);
 
     let classification;
+    if (isBeginner) {
+      classification = "Beginner";
+    }
 
     // Gender is male
-    if (userGender === "male" || userGender === "other") {
+    if (!classification && (userGender === "male" || userGender === "other")) {
 
       // Weight class: under 120 lbs
       if (weight < 120) {
@@ -349,7 +352,7 @@ const userGender = gender || existingUser.gender;
     }
 
     // Gender is female
-    if (userGender === "female") {
+    if (!classification && userGender === "female") {
 
       // Weight class: under 100 lbs
       if (weight < 100) {
@@ -642,27 +645,7 @@ const userGender = gender || existingUser.gender;
     // Only update classification if we actually determined one
     if (classification) updateFields.current_classification = classification;
 
-const classificationEntry = {
-      squat: Number(squat),
-      bench: Number(benchPress),
-      deadlift: Number(deadlift),
-      total: totalOneRepMax,
-      bodyweight: weight,
-      classification: classification || null,
-      gender: userGender,
-      date: new Date(),
-    };
-
-    await users.updateOne(
-      { email },
-      {
-        $set: updateFields,
-        $push: {
-          bodyweight_history: { value: weight, date: new Date() },
-          classification_history: classificationEntry,
-        },
-      }
-    );
+await users.updateOne({ email }, { $set: updateFields });
     // Send email if classification exists
     try {
       if (classification) {
