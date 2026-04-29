@@ -797,6 +797,22 @@ router.get("/debug-templates", async (_req, res) => {
   }
 });
 
+// ─── Library Videos ───────────────────────────────────────────────────────────
+
+// Returns all library_videos docs as { exercise_name, mux_playback_id }.
+// The frontend does fuzzy name matching against its hardcoded exercise list.
+router.get("/library-videos", async (_req, res) => {
+  try {
+    const videos = await db.collection("library_videos")
+      .find({}, { projection: { exercise_name: 1, mux_playback_id: 1, _id: 0 } })
+      .toArray();
+    res.status(200).json(videos);
+  } catch (err) {
+    console.error("Error fetching library videos:", err);
+    res.status(500).json({ message: "Error fetching library videos" });
+  }
+});
+
 // ─── Workout Routes ───────────────────────────────────────────────────────────
 
 // Get current workout for a user
@@ -1645,10 +1661,23 @@ router.put("/update/:userId", async (req, res) => {
     }
     if (req.body.gender !== undefined) updates.gender = req.body.gender;
 
-    await users.updateOne(
-      { _id: userId },
-      { $set: updates }
-    );
+    const bodyWeightRaw = req.body.bodyWeight;
+    const bodyWeightNum = bodyWeightRaw !== undefined && bodyWeightRaw !== null && bodyWeightRaw !== ""
+      ? Number(bodyWeightRaw)
+      : null;
+    const hasValidBodyWeight = bodyWeightNum !== null && Number.isFinite(bodyWeightNum) && bodyWeightNum > 0;
+    if (hasValidBodyWeight) {
+      updates.current_bodyweight = bodyWeightNum;
+    }
+
+    const updateOps = { $set: updates };
+    if (hasValidBodyWeight) {
+      updateOps.$push = {
+        bodyweight_history: { value: bodyWeightNum, date: new Date() },
+      };
+    }
+
+    await users.updateOne({ _id: userId }, updateOps);
 
     if (changedFields.length > 0) {
       const updatedFirstName = updates.firstName ?? existingUser.firstName;
