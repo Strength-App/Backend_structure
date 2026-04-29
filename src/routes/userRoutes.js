@@ -169,21 +169,19 @@ router.post("/create-account", async (req, res) => {
 
     const result = await collection.insertOne(newUser);
 
-    try {
-      await sendEmail({
-        to: normalizedEmail,
-        subject: "Welcome to MaxMethod",
-        text: `Hi ${firstName || "there"},
+    sendEmail({
+      to: normalizedEmail,
+      subject: "Welcome to MaxMethod",
+      text: `Hi ${firstName || "there"},
 
 Your MaxMethod account has been created successfully.
 
 You can now sign in and finish onboarding.
 
 - MaxMethod`,
-      });
-    } catch (emailErr) {
+    }).catch((emailErr) => {
       console.error("Create-account email failed:", emailErr.message);
-    }
+    });
 
     res.status(201).json({
       _id: result.insertedId,
