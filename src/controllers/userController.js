@@ -663,17 +663,15 @@ const classificationEntry = {
         },
       }
     );
-    // Send email if classification exists
-    try {
-      if (classification) {
-        await sendEmail({
-          to: existingUser.email,
-          subject: "Your Strength Classification Results 💪",
-          text: `Classification: ${classification}`,
-        }).catch(err => console.error("Email failed:", err));
-      }
-    } catch (err) {
-      console.error("Email failed:", err.message);
+    // Send email if classification exists — fire-and-forget so SMTP latency
+    // doesn't block the HTTP response (Gmail handshakes from Railway can stall
+    // up to nodemailer's 2-min timeout, leaving the user stuck on the form).
+    if (classification) {
+      sendEmail({
+        to: existingUser.email,
+        subject: "Your Strength Classification Results 💪",
+        text: `Classification: ${classification}`,
+      }).catch(err => console.error("Email failed:", err.message));
     }
 
     res.status(200).json({
