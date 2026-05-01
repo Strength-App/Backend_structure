@@ -1,0 +1,12 @@
+# Railway / Nixpacks build config.
+#
+# Pull Git LFS objects during build so the .joblib model artifacts are real
+# binaries rather than LFS pointer files. Without this, Railway clones the
+# repo without LFS and joblib.load() crashes at runtime with KeyError: 118
+# (the first byte of an LFS pointer file is 'v' from "version https://...").
+
+[phases.setup]
+aptPkgs = ['...', 'git-lfs']
+
+[phases.install]
+cmds = ['git lfs install --local', 'git lfs pull', '...']
