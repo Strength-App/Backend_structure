@@ -18,6 +18,8 @@ Artefacts are loaded lazily on first call and cached for subsequent calls.
 
 from __future__ import annotations
 
+import os
+import urllib.request
 import warnings
 from pathlib import Path
 
@@ -154,6 +156,26 @@ OVERHEAD_PRESS_RATIO = 0.64
 # Lazy-loaded model cache
 # ---------------------------------------------------------------------------
 
+def _download_artefact_if_missing(path: Path, env_var: str) -> None:
+    """Fetch an artefact from <env_var> URL if not on disk.
+
+    Hosting these as public download URLs (e.g. GitHub Release assets) avoids
+    Git LFS — Railway/Railpack snapshots don't reliably resolve LFS pointers
+    so `joblib.load` blows up with `KeyError: 118` on the pointer file's first
+    byte ('v' from "version https://...").
+    """
+    if path.exists():
+        return
+    url = os.environ.get(env_var)
+    if not url:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[weight_predictor] downloading {path.name} from {url}", flush=True)
+    urllib.request.urlretrieve(url, path)
+    size_mb = path.stat().st_size / 1024 / 1024
+    print(f"[weight_predictor] downloaded {size_mb:.1f} MB -> {path}", flush=True)
+
+
 class _ModelCache:
     _model   = None
     _encoder = None
@@ -165,10 +187,15 @@ class _ModelCache:
             model_path   = artefact_dir / "xgb_model.joblib"
             encoder_path = artefact_dir / "feature_encoder.joblib"
 
+            _download_artefact_if_missing(model_path,   "WEIGHT_MODEL_URL")
+            _download_artefact_if_missing(encoder_path, "WEIGHT_ENCODER_URL")
+
             if not model_path.exists() or not encoder_path.exists():
                 raise FileNotFoundError(
                     f"Model artefacts not found in '{artefact_dir}'. "
-                    "Run `python weight_model.py` to train the model first."
+                    "Either train locally with `python weight_model.py`, or set "
+                    "WEIGHT_MODEL_URL and WEIGHT_ENCODER_URL env vars to "
+                    "downloadable .joblib URLs."
                 )
 
             cls._model   = joblib.load(model_path)

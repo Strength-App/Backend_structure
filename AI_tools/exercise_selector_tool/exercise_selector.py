@@ -44,6 +44,8 @@ to ``models/exercise_models.joblib`` before calling ``select_exercise()``.
 
 from __future__ import annotations
 
+import os
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -67,6 +69,25 @@ _DEFAULT_MODEL_PATH: Path = Path(__file__).parent / "models" / "exercise_models.
 _MODEL_CACHE: Optional[dict] = None
 
 
+def _download_model_if_missing(model_path: Path) -> None:
+    """Fetch the model bundle from EXERCISE_MODEL_URL if not on disk.
+
+    Why: the bundle is ~240 MB so we host it as a GitHub Release asset rather
+    than committing it via Git LFS (Railway/Railpack snapshots don't reliably
+    resolve LFS pointers, leaving a `KeyError: 118` at joblib.load).
+    """
+    if model_path.exists():
+        return
+    url = os.environ.get("EXERCISE_MODEL_URL")
+    if not url:
+        return
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[exercise_selector] downloading model from {url}", flush=True)
+    urllib.request.urlretrieve(url, model_path)
+    size_mb = model_path.stat().st_size / 1024 / 1024
+    print(f"[exercise_selector] downloaded {size_mb:.1f} MB -> {model_path}", flush=True)
+
+
 def load_models(model_path: str | Path = _DEFAULT_MODEL_PATH) -> dict:
     """Load all trained pattern models from disk (cached after first call).
 
@@ -80,11 +101,12 @@ def load_models(model_path: str | Path = _DEFAULT_MODEL_PATH) -> dict:
         return _MODEL_CACHE
 
     model_path = Path(model_path)
+    _download_model_if_missing(model_path)
     if not model_path.exists():
         raise FileNotFoundError(
             f"Model bundle not found at '{model_path}'.\n"
-            "Train the models first by running:\n"
-            "    python exercise_model.py"
+            "Either train locally with `python exercise_model.py` or set the "
+            "EXERCISE_MODEL_URL env var to a downloadable .joblib URL."
         )
 
     _MODEL_CACHE = joblib.load(model_path)
