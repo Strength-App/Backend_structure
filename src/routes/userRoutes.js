@@ -126,6 +126,163 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
   return {isPersonalBest: false, previousPersonalBest: currentPersonalBest,};
 }
 
+// Big-three lifts whose personal_bests are seeded from onboarding-estimated
+// 1RMs at workout-generation time (userRoutes.js generate-workout route uses
+// $max with user.current_one_rep_maxes.{bench,squat,deadlift}). For these
+// lifts personal_bests[name] = max(seeded 1RM, all-time max actualWeight in
+// any session). updatePersonalBest preserves this floor implicitly because
+// it only ever raises; rebuildPersonalBest must apply it explicitly so an
+// edit-driven recompute can never drop a big-three PR below its seed.
+const SEEDED_PB_KEY = {
+  "Bench Press": "bench",
+  "Squat":       "squat",
+  "Deadlift":    "deadlift",
+};
+
+function seededFloor(user, exerciseName) {
+  const key = SEEDED_PB_KEY[exerciseName];
+  return key ? Number(user.current_one_rep_maxes?.[key] ?? 0) : 0;
+}
+
+// Recompute personal_bests[exerciseName] from all of the user's sessions,
+// floored at the onboarding-seeded 1RM for big-three lifts. Used by
+// history-edit endpoints — unlike updatePersonalBest (monotonic raise),
+// this is mutable in both directions. Both functions share the same notion
+// of "comparable weight" (raw actualWeight, no rep filter) and the same
+// seeded-floor invariant; they differ only on update direction. Idempotent.
+// Returns { pbChanged, oldPB, newPB, exercise }.
+async function rebuildPersonalBest(userId, exerciseName) {
+  if (!exerciseName) return null;
+  const usersCollection = db.collection("users");
+  const programLogsCollection = db.collection("program_logs");
+  const workoutLogsCollection = db.collection("workout_logs");
+  const quickSessionsCollection = db.collection("quick_sessions");
+
+  const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+  if (!user) return null;
+
+  const oldPB = Number(user.personal_bests?.[exerciseName] ?? 0);
+  const floor = seededFloor(user, exerciseName);
+
+  const programLogIds = (user.program_log_ids ?? []).map(id => new ObjectId(id));
+  const programLogs = programLogIds.length
+    ? await programLogsCollection.find({ _id: { $in: programLogIds } }).toArray()
+    : [];
+  const workoutLogIds = programLogs
+    .map(p => p.workoutLogId)
+    .filter(Boolean)
+    .map(id => new ObjectId(id));
+  const workoutLogs = workoutLogIds.length
+    ? await workoutLogsCollection.find({ _id: { $in: workoutLogIds } }).toArray()
+    : [];
+
+  let max = 0;
+  for (const wl of workoutLogs) {
+    for (const week of wl.weeks ?? []) {
+      for (const day of week.days ?? []) {
+        if (!day.completed) continue;
+        for (const slot of day.slots ?? []) {
+          if (slot.exercise !== exerciseName) continue;
+          for (const [j, done] of Object.entries(slot.completedSets ?? {})) {
+            if (!done) continue;
+            const w = Number(slot.actualWeights?.[j] ?? 0);
+            if (w > max) max = w;
+          }
+        }
+      }
+    }
+  }
+
+  const quickSessions = await quickSessionsCollection
+    .find({ userId: new ObjectId(userId) })
+    .toArray();
+  for (const qs of quickSessions) {
+    for (const ex of qs.exercises ?? []) {
+      if (ex.name !== exerciseName) continue;
+      for (const s of ex.sets ?? []) {
+        if (!s.done) continue;
+        const w = Number(s.weight ?? 0);
+        if (w > max) max = w;
+      }
+    }
+  }
+
+  // Effective PR = max of session-derived weight and the seeded 1RM floor
+  // (zero for non-big-three lifts). $unset only fires when both are zero —
+  // which for big-three lifts means the seed itself is zero/missing, since
+  // any non-zero seed makes the floor the natural minimum.
+  const effective = Math.max(max, floor);
+
+  if (effective === oldPB) {
+    return { pbChanged: false, oldPB, newPB: effective, exercise: exerciseName };
+  }
+  if (effective > 0) {
+    await usersCollection.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { [`personal_bests.${exerciseName}`]: effective } }
+    );
+  } else {
+    await usersCollection.updateOne(
+      { _id: new ObjectId(userId) },
+      { $unset: { [`personal_bests.${exerciseName}`]: "" } }
+    );
+  }
+  return { pbChanged: true, oldPB, newPB: effective, exercise: exerciseName };
+}
+
+// Parse the prescribed-reps value for an appended set's default. Handles
+// integer ("8" → 8), range ("8-12" → 8), comma list ("21,15,9" → 21),
+// time format ("1:00" → 0, cardio handled separately), unparseable → 0.
+// First-number-found-or-zero — defaults are starting points, user edits.
+function parsePresReps(value) {
+  if (value == null) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const str = String(value).trim();
+  if (!str) return 0;
+  if (/^\d+:\d+/.test(str)) return 0; // time format — cardio path handles separately
+  const m = str.match(/\d+/);
+  return m ? Number(m[0]) : 0;
+}
+
+// Ownership helpers — security primitives. Throw an Error with .status on
+// failure; endpoints catch and dispatch the appropriate HTTP status. Used
+// by the structural-edit endpoints (Pass C); follow-up applies them to
+// the existing Layer-A PATCH endpoints in a separate cleanup.
+async function assertOwnsWorkoutLog(userId, workoutLogId) {
+  const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
+  if (!user) {
+    const err = new Error("User not found");
+    err.status = 404;
+    throw err;
+  }
+  const programLogIds = (user.program_log_ids ?? []).map(id => new ObjectId(id));
+  const programLog = await db.collection("program_logs").findOne({
+    _id: { $in: programLogIds },
+    workoutLogId: new ObjectId(workoutLogId),
+  });
+  if (!programLog) {
+    const err = new Error("Workout log not owned by user");
+    err.status = 403;
+    throw err;
+  }
+  return { user, programLog };
+}
+
+async function assertOwnsQuickSession(userId, quickSessionId) {
+  const session = await db.collection("quick_sessions").findOne({ _id: new ObjectId(quickSessionId) });
+  if (!session) {
+    const err = new Error("Quick session not found");
+    err.status = 404;
+    throw err;
+  }
+  if (String(session.userId) !== String(userId)) {
+    const err = new Error("Quick session not owned by user");
+    err.status = 403;
+    throw err;
+  }
+  return session;
+}
+
 // ─── Auth Routes ─────────────────────────────────────────────────────────────
 
 // Create account
@@ -1054,15 +1211,24 @@ router.get("/workout/:userId/all-history", async (req, res) => {
       for (const [wi, week] of (wl.weeks ?? []).entries()) {
         for (const [di, day] of (week.days ?? []).entries()) {
           if (!day.completed || !day.completedAt) continue;
+          // slotIdx carries the slot's ORIGINAL index in day.slots — needed
+          // by history-edit because the .filter below drops empty slots and
+          // the response array index would otherwise drift from the schema.
           const completedSlots = (day.slots ?? [])
-            .map(slot => ({
+            .map((slot, originalSlotIdx) => ({
+              slotIdx: originalSlotIdx,
               exercise: slot.exercise ?? slot.label ?? null,
+              label: slot.label ?? null,
               sets: slot.sets,
               reps: slot.reps,
               actualWeights: slot.actualWeights ?? {},
               actualReps: slot.actualReps ?? {},
               completedSets: slot.completedSets ?? {},
+              cardioTimes: slot.cardioTimes ?? {},
+              cardioIntensities: slot.cardioIntensities ?? {},
+              cardioDistances: slot.cardioDistances ?? {},
               weightNote: slot.weightNote ?? null,
+              notes: slot.notes ?? '',
             }))
             .filter(slot => Object.values(slot.completedSets).some(Boolean));
 
@@ -1073,6 +1239,8 @@ router.get("/workout/:userId/all-history", async (req, res) => {
             dayTitle: day.title ?? `Day ${di + 1}`,
             weekNumber: wi + 1,
             weekIndex: wi,
+            dayIdx: di,
+            workoutLogId: wl._id.toString(),
             programTitle: wl.title ?? null,
             slots: completedSlots,
           });
@@ -1091,16 +1259,26 @@ router.get("/workout/:userId/all-history", async (req, res) => {
         dayTitle: qs.title,
         weekNumber: null,
         weekIndex: null,
+        dayIdx: null,
+        workoutLogId: null,
         programTitle: null,
         isQuickSession: true,
-        slots: (qs.exercises ?? []).map(ex => ({
+        quickSessionId: qs._id.toString(),
+        slots: (qs.exercises ?? []).map((ex, ei) => ({
+          slotIdx: ei,
+          exerciseIdx: ei,
           exercise: ex.name,
+          label: null,
           sets: ex.sets?.length ?? 0,
           reps: null,
           actualWeights: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.weight ?? 0])),
           actualReps: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.reps ?? 0])),
           completedSets: Object.fromEntries((ex.sets ?? []).map((s, i) => [i, s.done ?? false])),
+          cardioTimes: {},
+          cardioIntensities: {},
+          cardioDistances: {},
           weightNote: null,
+          notes: null,
         })),
       });
     }
@@ -1157,6 +1335,187 @@ router.post("/quick-sessions", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error saving session" });
+  }
+});
+
+// Edit a logged set on a quick session (history-page edits). Mirrors the
+// program-session edit envelope: response shape { message, pbUpdate } where
+// pbUpdate is { pbChanged, oldPB, newPB, exercise } | null.
+router.patch("/quick-sessions/:quickSessionId/log", async (req, res) => {
+  try {
+    const { quickSessionId } = req.params;
+    const { userId, exerciseIdx, setIdx, reps, weight, done } = req.body;
+
+    if (!userId || exerciseIdx == null || setIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const session = await db.collection("quick_sessions").findOne({ _id: new ObjectId(quickSessionId) });
+    if (!session) return res.status(404).json({ message: "Quick session not found" });
+    if (String(session.userId) !== String(userId)) {
+      return res.status(403).json({ message: "Quick session not owned by user" });
+    }
+
+    const updateFields = {};
+    if (reps !== undefined) updateFields[`exercises.${exerciseIdx}.sets.${setIdx}.reps`] = reps;
+    if (weight !== undefined) updateFields[`exercises.${exerciseIdx}.sets.${setIdx}.weight`] = weight;
+    if (done !== undefined) updateFields[`exercises.${exerciseIdx}.sets.${setIdx}.done`] = done;
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $set: updateFields }
+    );
+
+    let pbUpdate = null;
+    if (weight !== undefined || done !== undefined) {
+      const exerciseName = session.exercises?.[exerciseIdx]?.name;
+      if (exerciseName) {
+        pbUpdate = await rebuildPersonalBest(userId, exerciseName);
+      }
+    }
+
+    res.status(200).json({ message: "Quick session updated", pbUpdate });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating quick session" });
+  }
+});
+
+// ─── History edit: quick-session structural endpoints (Pass C) ──────────────
+// Same model as program-session structural endpoints. Quick-session sets
+// live in a real array (exercises[i].sets[]), so append uses $push directly
+// and remove uses the same $unset + $pull null idiom as program slots.
+// Append ops skip PR rebuild; remove ops trigger it.
+
+// Append a new set to an exercise. Defaults: reps 0, weight 0, done true.
+router.post("/quick-sessions/:quickSessionId/log/set", async (req, res) => {
+  try {
+    const { quickSessionId } = req.params;
+    const { userId, exerciseIdx } = req.body;
+    if (!userId || exerciseIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const session = await assertOwnsQuickSession(userId, quickSessionId);
+
+    const exercise = session.exercises?.[exerciseIdx];
+    if (!exercise) return res.status(404).json({ message: "Exercise not found" });
+
+    const newIdx = (exercise.sets ?? []).length;
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $push: { [`exercises.${exerciseIdx}.sets`]: { reps: 0, weight: 0, done: true } } }
+    );
+
+    res.status(201).json({ message: "Set added", newIndex: newIdx });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error adding set" });
+  }
+});
+
+// Remove a set from an exercise. Two-step $unset + $pull null because
+// exercises[i].sets is a real array.
+router.delete("/quick-sessions/:quickSessionId/log/set", async (req, res) => {
+  try {
+    const { quickSessionId } = req.params;
+    const { userId, exerciseIdx, setIdx } = req.body;
+    if (!userId || exerciseIdx == null || setIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const session = await assertOwnsQuickSession(userId, quickSessionId);
+
+    const exercise = session.exercises?.[exerciseIdx];
+    if (!exercise) return res.status(404).json({ message: "Exercise not found" });
+    const exerciseName = exercise.name;
+
+    const setsPath = `exercises.${exerciseIdx}.sets`;
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $unset: { [`${setsPath}.${setIdx}`]: "" } }
+    );
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $pull: { [setsPath]: null } }
+    );
+
+    let pbUpdate = null;
+    if (exerciseName) pbUpdate = await rebuildPersonalBest(userId, exerciseName);
+
+    res.status(200).json({ message: "Set removed", pbUpdate });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error removing set" });
+  }
+});
+
+// Append a new exercise. Starts with one default set so the exercise has
+// at least one logged entry on creation.
+router.post("/quick-sessions/:quickSessionId/log/exercise", async (req, res) => {
+  try {
+    const { quickSessionId } = req.params;
+    const { userId, exerciseName } = req.body;
+    if (!userId || !exerciseName?.trim()) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const session = await assertOwnsQuickSession(userId, quickSessionId);
+
+    const newExerciseIdx = (session.exercises ?? []).length;
+    const newExercise = {
+      name: exerciseName.trim(),
+      sets: [{ reps: 0, weight: 0, done: true }],
+    };
+
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $push: { exercises: newExercise } }
+    );
+
+    res.status(201).json({ message: "Exercise added", newExerciseIdx });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error adding exercise" });
+  }
+});
+
+// Remove an exercise from a quick session. Two-step $unset + $pull null.
+// Triggers PR rebuild because all values for the removed exercise are gone.
+router.delete("/quick-sessions/:quickSessionId/log/exercise", async (req, res) => {
+  try {
+    const { quickSessionId } = req.params;
+    const { userId, exerciseIdx } = req.body;
+    if (!userId || exerciseIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const session = await assertOwnsQuickSession(userId, quickSessionId);
+
+    const exercise = session.exercises?.[exerciseIdx];
+    if (!exercise) return res.status(404).json({ message: "Exercise not found" });
+    const exerciseName = exercise.name;
+
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $unset: { [`exercises.${exerciseIdx}`]: "" } }
+    );
+    await db.collection("quick_sessions").updateOne(
+      { _id: new ObjectId(quickSessionId) },
+      { $pull: { exercises: null } }
+    );
+
+    let pbUpdate = null;
+    if (exerciseName) pbUpdate = await rebuildPersonalBest(userId, exerciseName);
+
+    res.status(200).json({ message: "Exercise removed", pbUpdate });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error removing exercise" });
   }
 });
 
@@ -1227,6 +1586,280 @@ router.patch("/workout/log", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating log" });
+  }
+});
+
+// Edit a logged set on any of the user's workout logs (history-page edits).
+// Mirrors PATCH /workout/log's body shape but targets workoutLogId directly
+// and rebuilds personal_bests across all sessions instead of monotonically
+// raising. pbUpdate envelope is { pbChanged, oldPB, newPB, exercise } |
+// null — distinct from /workout/log's pbUpdate shape because semantics
+// differ (raise-only vs full rebuild).
+router.patch("/workout-log/:workoutLogId/log", async (req, res) => {
+  try {
+    const { workoutLogId } = req.params;
+    const { userId, weekNum, dayNum, slotIdx, setIdx, actualWeight, actualReps, notes, setDone, cardioTime, cardioIntensity, cardioDistance } = req.body;
+
+    if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Ownership: workoutLogId must reach back to the user's program_log_ids.
+    const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const programLogIds = (user.program_log_ids ?? []).map(id => new ObjectId(id));
+    const ownedLink = await db.collection("program_logs").findOne({
+      _id: { $in: programLogIds },
+      workoutLogId: new ObjectId(workoutLogId),
+    });
+    if (!ownedLink) {
+      return res.status(403).json({ message: "Workout log not owned by user" });
+    }
+
+    const updateFields = {};
+    if (actualWeight !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualWeights.${setIdx}`] = actualWeight;
+    }
+    if (actualReps !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.actualReps.${setIdx}`] = actualReps;
+    }
+    if (notes !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.notes`] = notes;
+    }
+    if (setDone !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.completedSets.${setIdx}`] = setDone;
+    }
+    if (cardioTime !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioTimes.${setIdx}`] = cardioTime;
+    }
+    if (cardioIntensity !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioIntensities.${setIdx}`] = cardioIntensity;
+    }
+    if (cardioDistance !== undefined) {
+      updateFields[`weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}.cardioDistances.${setIdx}`] = cardioDistance;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    const workoutLogsCollection = db.collection("workout_logs");
+    const result = await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $set: updateFields }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Workout log not found" });
+    }
+
+    // Rebuild persistent PR for the affected exercise. setDone counts because
+    // un-checking a set removes a value from the PR-eligible pool.
+    let pbUpdate = null;
+    if (actualWeight !== undefined || setDone !== undefined) {
+      const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
+      const exercise = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1]?.slots?.[slotIdx]?.exercise;
+      if (exercise) {
+        pbUpdate = await rebuildPersonalBest(userId, exercise);
+      }
+    }
+
+    res.status(200).json({ message: "Log updated", pbUpdate });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error updating log" });
+  }
+});
+
+// ─── History edit: program-session structural endpoints (Pass C) ────────────
+// Append/remove sets and exercises (slots) on a logged workout. Append ops
+// don't trigger PR rebuild because their default values (weight 0) can't beat
+// any existing PR — if a future change adds a weight body param, this needs
+// updating. Remove ops trigger rebuild because the removed value may have
+// been the PR. Sets use $unset on keyed maps (indices stable, no re-keying).
+// Slots use the two-step $unset + $pull null Mongo idiom because day.slots
+// is a real array.
+
+// Append a new set to a slot. New index = max existing key + 1. Defaults:
+// reps from prescription via parsePresReps, weight 0, completedSets true.
+router.post("/workout-log/:workoutLogId/log/set", async (req, res) => {
+  try {
+    const { workoutLogId } = req.params;
+    const { userId, weekNum, dayNum, slotIdx } = req.body;
+    if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    await assertOwnsWorkoutLog(userId, workoutLogId);
+
+    const workoutLogsCollection = db.collection("workout_logs");
+    const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
+    const slot = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1]?.slots?.[slotIdx];
+    if (!slot) return res.status(404).json({ message: "Slot not found" });
+
+    const existingKeys = [
+      ...Object.keys(slot.actualWeights ?? {}),
+      ...Object.keys(slot.actualReps ?? {}),
+      ...Object.keys(slot.completedSets ?? {}),
+    ].map(Number).filter(n => !Number.isNaN(n));
+    const newIdx = existingKeys.length ? Math.max(...existingKeys) + 1 : 0;
+
+    const wi = weekNum - 1;
+    const presRepsRaw = Array.isArray(slot.reps) ? (slot.reps[wi] ?? slot.reps[slot.reps.length - 1]) : slot.reps;
+    const defaultReps = parsePresReps(presRepsRaw);
+    const isCardio = slot.label === 'Cardio';
+
+    const basePath = `weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}`;
+    const updateFields = {
+      [`${basePath}.completedSets.${newIdx}`]: true,
+    };
+    if (isCardio) {
+      updateFields[`${basePath}.cardioTimes.${newIdx}`] = '';
+      updateFields[`${basePath}.cardioIntensities.${newIdx}`] = '';
+      updateFields[`${basePath}.cardioDistances.${newIdx}`] = '';
+    } else {
+      updateFields[`${basePath}.actualReps.${newIdx}`] = defaultReps;
+      updateFields[`${basePath}.actualWeights.${newIdx}`] = 0;
+    }
+
+    await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $set: updateFields }
+    );
+
+    res.status(201).json({ message: "Set added", newIndex: newIdx });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error adding set" });
+  }
+});
+
+// Remove a set by $unset of all keyed entries at setIdx. Indices for other
+// sets are preserved (no re-keying). Triggers PR rebuild because the removed
+// value may have been the PR.
+router.delete("/workout-log/:workoutLogId/log/set", async (req, res) => {
+  try {
+    const { workoutLogId } = req.params;
+    const { userId, weekNum, dayNum, slotIdx, setIdx } = req.body;
+    if (!userId || weekNum == null || dayNum == null || slotIdx == null || setIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    await assertOwnsWorkoutLog(userId, workoutLogId);
+
+    const workoutLogsCollection = db.collection("workout_logs");
+    const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
+    const slot = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1]?.slots?.[slotIdx];
+    if (!slot) return res.status(404).json({ message: "Slot not found" });
+    const exerciseName = slot.exercise;
+
+    const basePath = `weeks.${weekNum - 1}.days.${dayNum - 1}.slots.${slotIdx}`;
+    await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $unset: {
+        [`${basePath}.actualWeights.${setIdx}`]: "",
+        [`${basePath}.actualReps.${setIdx}`]: "",
+        [`${basePath}.completedSets.${setIdx}`]: "",
+        [`${basePath}.cardioTimes.${setIdx}`]: "",
+        [`${basePath}.cardioIntensities.${setIdx}`]: "",
+        [`${basePath}.cardioDistances.${setIdx}`]: "",
+      } }
+    );
+
+    let pbUpdate = null;
+    if (exerciseName) pbUpdate = await rebuildPersonalBest(userId, exerciseName);
+
+    res.status(200).json({ message: "Set removed", pbUpdate });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error removing set" });
+  }
+});
+
+// Append a new exercise (slot) to a day. Starts with one default set so the
+// slot renders immediately under the /all-history filter (which requires at
+// least one completedSets[j] === true). Defaults: sets: 3, reps: 8 in the
+// prescription fields (visible only as fallback when actuals are blank).
+router.post("/workout-log/:workoutLogId/log/exercise", async (req, res) => {
+  try {
+    const { workoutLogId } = req.params;
+    const { userId, weekNum, dayNum, exerciseName } = req.body;
+    if (!userId || weekNum == null || dayNum == null || !exerciseName?.trim()) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    await assertOwnsWorkoutLog(userId, workoutLogId);
+
+    const workoutLogsCollection = db.collection("workout_logs");
+    const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
+    const day = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1];
+    if (!day) return res.status(404).json({ message: "Day not found" });
+
+    const newSlotIdx = (day.slots ?? []).length;
+    const newSlot = {
+      slotIdx: newSlotIdx,
+      label: null,
+      fixed: false,
+      exercise: exerciseName.trim(),
+      sets: 3,
+      reps: 8,
+      weightNote: null,
+      projectedWeight: null,
+      note: null,
+      actualWeights: { "0": 0 },
+      actualReps: { "0": 8 },
+      completedSets: { "0": true },
+    };
+
+    await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $push: { [`weeks.${weekNum - 1}.days.${dayNum - 1}.slots`]: newSlot } }
+    );
+
+    res.status(201).json({ message: "Exercise added", newSlotIdx });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error adding exercise" });
+  }
+});
+
+// Remove an exercise (slot) from a day. Two-step $unset + $pull null because
+// day.slots is a real array — $pull compacts after the unset leaves a null
+// hole. Triggers PR rebuild because all values for the removed exercise are
+// gone from this session.
+router.delete("/workout-log/:workoutLogId/log/exercise", async (req, res) => {
+  try {
+    const { workoutLogId } = req.params;
+    const { userId, weekNum, dayNum, slotIdx } = req.body;
+    if (!userId || weekNum == null || dayNum == null || slotIdx == null) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    await assertOwnsWorkoutLog(userId, workoutLogId);
+
+    const workoutLogsCollection = db.collection("workout_logs");
+    const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
+    const slot = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1]?.slots?.[slotIdx];
+    if (!slot) return res.status(404).json({ message: "Slot not found" });
+    const exerciseName = slot.exercise;
+
+    const slotsPath = `weeks.${weekNum - 1}.days.${dayNum - 1}.slots`;
+    await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $unset: { [`${slotsPath}.${slotIdx}`]: "" } }
+    );
+    await workoutLogsCollection.updateOne(
+      { _id: new ObjectId(workoutLogId) },
+      { $pull: { [slotsPath]: null } }
+    );
+
+    let pbUpdate = null;
+    if (exerciseName) pbUpdate = await rebuildPersonalBest(userId, exerciseName);
+
+    res.status(200).json({ message: "Exercise removed", pbUpdate });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Error removing exercise" });
   }
 });
 
