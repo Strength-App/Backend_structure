@@ -725,6 +725,7 @@ router.post("/goals", async (req, res) => {
       daysPerWeek: Number(daysPerWeek),
       goalSelection,
       createdAt: new Date(),
+      progression_note: templates[0]?.progression_note ?? null,
       weeks,
     };
 
