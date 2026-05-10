@@ -9,6 +9,7 @@ import { predictWeight } from "../utils/weightPredictor.js";
 import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, buildExerciseMaxMap } from "../utils/userWeightHistory.js";
 import { pickCardioMachine } from "../utils/cardioSelector.js";
 import { getRecentAssignments, recordAssignment } from "../utils/cardioAssignmentHistory.js";
+import { buildUserResponse } from "../utils/userResponse.js";
 
 
 const router = express.Router();
@@ -340,12 +341,7 @@ You can now sign in and finish onboarding.
       console.error("Create-account email failed:", emailErr.message);
     });
 
-    res.status(201).json({
-      _id: result.insertedId,
-      firstName,
-      lastName,
-      email: normalizedEmail
-    });
+    res.status(201).json(buildUserResponse({ ...newUser, _id: result.insertedId }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error creating account" });
@@ -371,19 +367,7 @@ router.post("/login", async (req, res) => {
 
     res.status(200).json({
       success: true,
-      user: {
-        _id: user._id.toString(),
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        gender: user.gender,
-        current_bodyweight: user.current_bodyweight,
-        current_one_rep_maxes: user.current_one_rep_maxes,
-        current_classification: user.current_classification,
-        onboarding_complete: user.onboarding_complete,
-        current_workout_id: user.current_workout_id,
-        personal_bests: user.personal_bests
-      }
+      user: buildUserResponse(user)
     });
   } catch (err) {
     console.error(err);
