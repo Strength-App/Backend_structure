@@ -10,6 +10,8 @@ import { buildWeightCorrectionMap, getCorrectionFactor, applyWeightCorrection, b
 import { pickCardioMachine } from "../utils/cardioSelector.js";
 import { getRecentAssignments, recordAssignment } from "../utils/cardioAssignmentHistory.js";
 import { buildUserResponse } from "../utils/userResponse.js";
+import { canonicalExerciseName } from "../utils/exerciseNameNormalize.js";
+import processBig3Progression from "../services/processBig3Progression.js";
 
 
 const router = express.Router();
@@ -112,15 +114,15 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
     return null
   }
 
-  // const currentPersonalBests = user.current_one_rep_maxes[exercise] ?? {};
-  // const currentPersonalBest = currentPersonalBests[exercise] ?? 0;
+  // Canonicalize at entry so "Back Squat" reads/writes from personal_bests.Squat.
+  const canonical = canonicalExerciseName(exercise);
 
-  const currentPersonalBest = user.personal_bests?.[exercise] ?? 0;
+  const currentPersonalBest = user.personal_bests?.[canonical] ?? 0;
 
   if (actualWeight > 0 && actualWeight > currentPersonalBest) {
     await usersCollection.updateOne(
         { _id: new ObjectId(userId) },
-        { $set: { [`personal_bests.${exercise}`]: actualWeight }}
+        { $set: { [`personal_bests.${canonical}`]: actualWeight }}
     );
     return {isPersonalBest: true, previousPersonalBest: currentPersonalBest, newPersonalBest: actualWeight};
   }
@@ -134,9 +136,15 @@ async function updatePersonalBest(userId, exercise, actualWeight) {
 // any session). updatePersonalBest preserves this floor implicitly because
 // it only ever raises; rebuildPersonalBest must apply it explicitly so an
 // edit-driven recompute can never drop a big-three PR below its seed.
+// "Back Squat" aliases to "squat" so the seeded-floor invariant covers
+// program/quick-session slots labeled either way. Mirrors the canonical
+// rewrite in canonicalExerciseName (utils/exerciseNameNormalize.js) — both
+// must list the same set of aliased labels or PB writes and floor lookups
+// will disagree.
 const SEEDED_PB_KEY = {
   "Bench Press": "bench",
   "Squat":       "squat",
+  "Back Squat":  "squat",
   "Deadlift":    "deadlift",
 };
 
@@ -162,8 +170,13 @@ async function rebuildPersonalBest(userId, exerciseName) {
   const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
   if (!user) return null;
 
-  const oldPB = Number(user.personal_bests?.[exerciseName] ?? 0);
-  const floor = seededFloor(user, exerciseName);
+  // Canonicalize the parameter at entry. Inside the walk loops, slot.exercise
+  // and ex.name are also canonicalized before comparison so that a Back-Squat-
+  // labeled session set contributes to the Squat rebuild (and vice versa).
+  const canonical = canonicalExerciseName(exerciseName);
+
+  const oldPB = Number(user.personal_bests?.[canonical] ?? 0);
+  const floor = seededFloor(user, canonical);
 
   const programLogIds = (user.program_log_ids ?? []).map(id => new ObjectId(id));
   const programLogs = programLogIds.length
@@ -183,7 +196,7 @@ async function rebuildPersonalBest(userId, exerciseName) {
       for (const day of week.days ?? []) {
         if (!day.completed) continue;
         for (const slot of day.slots ?? []) {
-          if (slot.exercise !== exerciseName) continue;
+          if (canonicalExerciseName(slot.exercise) !== canonical) continue;
           for (const [j, done] of Object.entries(slot.completedSets ?? {})) {
             if (!done) continue;
             const w = Number(slot.actualWeights?.[j] ?? 0);
@@ -199,7 +212,7 @@ async function rebuildPersonalBest(userId, exerciseName) {
     .toArray();
   for (const qs of quickSessions) {
     for (const ex of qs.exercises ?? []) {
-      if (ex.name !== exerciseName) continue;
+      if (canonicalExerciseName(ex.name) !== canonical) continue;
       for (const s of ex.sets ?? []) {
         if (!s.done) continue;
         const w = Number(s.weight ?? 0);
@@ -215,20 +228,20 @@ async function rebuildPersonalBest(userId, exerciseName) {
   const effective = Math.max(max, floor);
 
   if (effective === oldPB) {
-    return { pbChanged: false, oldPB, newPB: effective, exercise: exerciseName };
+    return { pbChanged: false, oldPB, newPB: effective, exercise: canonical };
   }
   if (effective > 0) {
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
-      { $set: { [`personal_bests.${exerciseName}`]: effective } }
+      { $set: { [`personal_bests.${canonical}`]: effective } }
     );
   } else {
     await usersCollection.updateOne(
       { _id: new ObjectId(userId) },
-      { $unset: { [`personal_bests.${exerciseName}`]: "" } }
+      { $unset: { [`personal_bests.${canonical}`]: "" } }
     );
   }
-  return { pbChanged: true, oldPB, newPB: effective, exercise: exerciseName };
+  return { pbChanged: true, oldPB, newPB: effective, exercise: canonical };
 }
 
 // Parse the prescribed-reps value for an appended set's default. Handles
@@ -317,6 +330,12 @@ router.post("/create-account", async (req, res) => {
         bench: null,
         deadlift: null
       },
+      estimated_one_rep_maxes: {
+        squat: null,
+        bench: null,
+        deadlift: null
+      },
+      beginner_1_anchor: null,
       current_classification: null,
       current_workout_id: null,
       personal_bests: {},
@@ -1302,20 +1321,40 @@ router.get("/workout/:userId/all-history", async (req, res) => {
   }
 });
 
-// Save a quick (no-program) workout session
+// Save a quick (no-program) workout session.
+//
+// `isSessionComplete` gate (strict === true) mirrors the PATCH
+// /quick-sessions/:id/log route from Phase 4 part 2: fires the big-3
+// progression service only when the client explicitly signals end-of-session.
+// Lets the POST be reused by future flows without auto-firing the service.
+// logger.jsx is the only client today that triggers this — sends true on the
+// Finish Workout click that opens the post-workout modal.
 router.post("/quick-sessions", async (req, res) => {
   try {
-    const { userId, title, exercises } = req.body;
+    const { userId, title, exercises, isSessionComplete } = req.body;
     if (!userId) return res.status(400).json({ message: "Missing userId" });
 
-    await db.collection("quick_sessions").insertOne({
+    const insertResult = await db.collection("quick_sessions").insertOne({
       userId: new ObjectId(userId),
       title: title || `Quick Workout`,
       date: new Date().toISOString(),
       exercises: exercises ?? [],
     });
 
-    res.status(201).json({ message: "Session saved" });
+    let e1rmUpdates = [];
+    if (isSessionComplete === true) {
+      e1rmUpdates = await processBig3Progression(
+        userId,
+        { exercises: exercises ?? [] },
+        { source: "quick" }
+      );
+    }
+
+    res.status(201).json({
+      message: "Session saved",
+      quickSessionId: insertResult.insertedId,
+      e1rmUpdates,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error saving session" });
@@ -1362,7 +1401,17 @@ router.patch("/quick-sessions/:quickSessionId/log", async (req, res) => {
       }
     }
 
-    res.status(200).json({ message: "Quick session updated", pbUpdate });
+    // Big-3 estimated-1RM progression fires once per session, on the client's
+    // strict-true session-complete signal. Loose truthy checks would let
+    // accidental missing/undefined values trigger the service per-set, which
+    // would re-run the pipeline on partial session state.
+    let e1rmUpdates = [];
+    if (req.body.isSessionComplete === true) {
+      const completedSession = await db.collection("quick_sessions").findOne({ _id: new ObjectId(quickSessionId) });
+      e1rmUpdates = await processBig3Progression(userId, completedSession, { source: "quick" });
+    }
+
+    res.status(200).json({ message: "Quick session updated", pbUpdate, e1rmUpdates });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating quick session" });
@@ -1640,15 +1689,23 @@ router.patch("/workout-log/:workoutLogId/log", async (req, res) => {
     // Rebuild persistent PR for the affected exercise. setDone counts because
     // un-checking a set removes a value from the PR-eligible pool.
     let pbUpdate = null;
+    let e1rmUpdates = [];
     if (actualWeight !== undefined || setDone !== undefined) {
       const workout = await workoutLogsCollection.findOne({ _id: new ObjectId(workoutLogId) });
       const exercise = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1]?.slots?.[slotIdx]?.exercise;
       if (exercise) {
         pbUpdate = await rebuildPersonalBest(userId, exercise);
       }
+      // NOTE: history edits can raise estimated 1RM retroactively. Trust
+      // model assumes user is honest about their own data. Revisit if
+      // anti-cheat is added. The maybe-update inside the service is
+      // one-directional (only raises), so editing a session down will
+      // never lower estimated 1RM — by design.
+      const editedDay = workout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1] ?? null;
+      e1rmUpdates = await processBig3Progression(userId, editedDay, { source: "program" });
     }
 
-    res.status(200).json({ message: "Log updated", pbUpdate });
+    res.status(200).json({ message: "Log updated", pbUpdate, e1rmUpdates });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating log" });
@@ -1906,7 +1963,16 @@ router.patch("/workout/complete-day", async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Workout log not found" });
     }
-    res.status(200).json({ message: "Day marked complete" });
+
+    // Re-fetch the workout to extract the just-completed day's slots, then
+    // run the big-3 estimated-1RM progression pipeline against them. Empty
+    // array is the valid no-update response and is included unconditionally
+    // so the client can branch on length rather than presence.
+    const completedWorkout = await workoutLogsCollection.findOne({ _id: new ObjectId(user.current_workout_id) });
+    const completedDay = completedWorkout?.weeks?.[weekNum - 1]?.days?.[dayNum - 1] ?? null;
+    const e1rmUpdates = await processBig3Progression(userId, completedDay, { source: "program" });
+
+    res.status(200).json({ message: "Day marked complete", e1rmUpdates });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error completing day" });

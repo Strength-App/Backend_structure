@@ -5,7 +5,7 @@
 // and localStorage. Drift between the two endpoints is what caused the
 // post-workout 2nd screen badge bug — this helper closes that bug class.
 //
-// Allowlist approach: only the 11 fields below are exposed. Sensitive fields
+// Allowlist approach: only the 13 fields below are exposed. Sensitive fields
 // (password, future 2FA secrets, etc.) require an explicit edit to be
 // returned. Adding fields here is a deliberate, reviewable decision.
 //
@@ -27,6 +27,8 @@ export function buildUserResponse(userDoc) {
     gender: userDoc.gender,
     current_bodyweight: userDoc.current_bodyweight,
     current_one_rep_maxes: userDoc.current_one_rep_maxes,
+    estimated_one_rep_maxes: userDoc.estimated_one_rep_maxes,
+    beginner_1_anchor: userDoc.beginner_1_anchor ?? null,
     current_classification: userDoc.current_classification,
     onboarding_complete: userDoc.onboarding_complete,
     current_workout_id: userDoc.current_workout_id,

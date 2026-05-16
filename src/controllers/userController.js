@@ -1,11 +1,27 @@
 import db from "../config/database.js";
 import sendEmail from "../utils/sendEmail.js";
 import { ObjectId } from "mongodb";
+import { fineLevel } from "../utils/levelProgress.js";
 
-// Controller for handling user classification
+// Controller for handling user classification.
+//
+// Mode branching (req.body.mode):
+//   "set-actual" (default) — actual-1RM-entry path (onboarding, pickNewProgram).
+//     Writes current_one_rep_maxes from the payload AND hard-overrides
+//     estimated_one_rep_maxes with identical values (regardless of direction).
+//     Actual is authoritative — if the prior estimate was higher (e.g., 260
+//     from a workout) and the user enters a lower actual (250), estimated
+//     drops to 250. Do NOT add a "only override if higher" guard here.
+//   "reclassify-only" — post-workout path. Computes classification using the
+//     payload's max values for the math, but does NOT write any maxes (not
+//     current, not estimated). Only updates current_classification and
+//     classification_history.
+//
+// Default mode (no field / unknown value) is "set-actual" for backwards compat.
 export const classification = async (req, res) => {
   try {
-    const { email, gender, benchPress, deadlift, squat, bodyWeight } = req.body;
+    const { email, gender, benchPress, deadlift, squat, bodyWeight, mode } = req.body;
+    const isReclassifyOnly = mode === "reclassify-only";
     const users = db.collection("users");
 
     // Get existing user from DB
@@ -15,17 +31,27 @@ export const classification = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-// Use DB gender if frontend didn't send one
-const userGender = gender || existingUser.gender;
+    // Source of truth for gender / bodyweight depends on mode:
+    //   set-actual — req.body is the form-fresh value the user just entered;
+    //     fall back to DB only when frontend omits one (legacy behavior).
+    //   reclassify-only — req.body comes from a (potentially stale or null)
+    //     React-context snapshot at the post-workout Continue click. Never
+    //     trust those for facts the server already persists; read from the
+    //     loaded user doc instead. This is the fix for Bugs A and B —
+    //     prevents history entries from being pushed with bodyweight: 0 or
+    //     gender: null when the client's context lags behind the DB.
+    const userGender = isReclassifyOnly
+      ? existingUser.gender
+      : (gender || existingUser.gender);
+    const weight = isReclassifyOnly
+      ? Number(existingUser.current_bodyweight ?? 0)
+      : Number(bodyWeight);
 
     // Converts input to numbers and calculates total one rep max
     const totalOneRepMax =
       Number(benchPress) +
       Number(deadlift) +
       Number(squat);
-
-    // Convert body weight to a number
-    const weight = Number(bodyWeight);
 
     let classification;
 
@@ -627,20 +653,72 @@ const userGender = gender || existingUser.gender;
     // step in userRoutes.js once the workout is fully generated
     //const users = db.collection("users");
 
-    // Build $set object dynamically
-    const updateFields = {
-      current_bodyweight: weight,
-      current_one_rep_maxes: {
+    // Build $set object dynamically. The mode flag gates the max-writing
+    // half of the update — in reclassify-only mode we touch ONLY the
+    // classification fields (and gender, if provided), never the maxes.
+    const updateFields = {};
+
+    if (!isReclassifyOnly) {
+      updateFields.current_bodyweight = weight;
+      const maxes = {
         bench: Number(benchPress),
         squat: Number(squat),
         deadlift: Number(deadlift),
-      },
-    };
+      };
+      updateFields.current_one_rep_maxes = maxes;
+      // Hard override on estimated — actual is authoritative regardless of
+      // direction (if the prior estimate was 260 from a workout and the user
+      // enters 250 here, estimated drops to 250). No "only if higher" guard.
+      //
+      // Full-object write is INTENTIONAL asymmetry with the dotted-path write
+      // in services/processBig3Progression.js. The two paths have different
+      // contracts: this path receives all three lifts from a single user-entry
+      // form and clamps the entire dict atomically (a partial write here would
+      // leave stale per-lift values from a prior actual-entry mixed with the
+      // new ones). processBig3Progression sees only the big-3 lifts that
+      // happened to be performed in this workout and must NOT touch the
+      // others, hence dotted-path. Keep both write shapes — do not unify.
+      updateFields.estimated_one_rep_maxes = { ...maxes };
+    }
 
-    // Only update gender if provided
-    if (gender !== undefined) updateFields.gender = gender;
+    // Gender writes happen ONLY in set-actual mode (onboarding / re-classify
+    // form submissions). reclassify-only must never overwrite persisted
+    // gender — the post-workout client legitimately sends user.gender from a
+    // context snapshot that can be null, and the loose `!== undefined` check
+    // would nuke the field. Set-actual mode also tightens to `!== null` (the
+    // user-entry forms never legitimately send null; defense-in-depth against
+    // any future caller that does).
+    if (!isReclassifyOnly && gender !== undefined && gender !== null) {
+      updateFields.gender = gender;
+    }
     // Only update classification if we actually determined one
     if (classification) updateFields.current_classification = classification;
+
+    // Beginner-1 anchor: sticky one-time write. The first time a user lands
+    // at Beginner 1 (fine-level) with a non-zero total, snapshot their total
+    // as the anchor. Used client-side as the left-bound for the level bar
+    // fill while the user is at Beginner 1 — gives them a visible starting
+    // point that the bar fills away from, instead of pinning to the
+    // Beginner-1-floor threshold (which can be hundreds of pounds above a
+    // sub-threshold total).
+    //
+    // Use `== null` (not `!`) so a hypothetical anchor === 0 wouldn't be
+    // overwritten. Sticky on re-entry: if the user crosses into Beginner 2
+    // and later drops back, the existing anchor is preserved (the gate
+    // skips the write).
+    let newAnchor = null;
+    if (
+      existingUser.beginner_1_anchor == null &&
+      totalOneRepMax > 0 &&
+      userGender &&
+      weight > 0
+    ) {
+      const fine = fineLevel({ sex: userGender, bodyweight: weight, total: totalOneRepMax });
+      if (fine === "Beginner 1") {
+        updateFields.beginner_1_anchor = totalOneRepMax;
+        newAnchor = totalOneRepMax;
+      }
+    }
 
 const classificationEntry = {
       squat: Number(squat),
@@ -653,14 +731,20 @@ const classificationEntry = {
       date: new Date(),
     };
 
+    // In reclassify-only mode, do not push a bodyweight_history entry — the
+    // bodyweight in the payload is the client's stored value, not a fresh
+    // entry, and duplicating it on every post-workout call would clutter
+    // the history. classification_history always pushes; that's the
+    // purpose of the call.
+    const pushFields = { classification_history: classificationEntry };
+    if (!isReclassifyOnly) {
+      pushFields.bodyweight_history = { value: weight, date: new Date() };
+    }
     await users.updateOne(
       { email },
       {
         $set: updateFields,
-        $push: {
-          bodyweight_history: { value: weight, date: new Date() },
-          classification_history: classificationEntry,
-        },
+        $push: pushFields,
       }
     );
     // Send email if classification exists — fire-and-forget so SMTP latency
@@ -674,10 +758,16 @@ const classificationEntry = {
       }).catch(err => console.error("Email failed:", err.message));
     }
 
+    // beginner1Anchor in the response so the client mirror can pick it up
+    // immediately (without waiting for the next app-boot bootstrap fetch to
+    // refresh user state). Reports the just-written value when this call
+    // performed the first write, OR the pre-existing value otherwise. Null
+    // for users still above Beginner 1 with no anchor yet.
     res.status(200).json({
       totalOneRepMax,
       classification,
       gender: userGender,
+      beginner1Anchor: newAnchor ?? existingUser.beginner_1_anchor ?? null,
     });
   } catch (error) {
     console.error(error);
