@@ -1,6 +1,8 @@
 // Canonicalize exercise display names that have legacy/synonym variants.
 // Used at every write-path that touches personal_bests or estimated_one_rep_maxes
-// so "Back Squat" and "Squat" collapse into a single canonical key ("Squat").
+// so the three spellings of the barbell back squat seen in legacy program data
+// -- "Squat", "Squats", and "Back Squat" -- collapse into a single canonical
+// key ("Squat").
 //
 // Match is case-insensitive on input but the canonical output preserves the
 // stored title-case form. Unknown names pass through unchanged.
@@ -13,6 +15,7 @@
 
 const ALIASES = {
   "back squat": "Squat",
+  "squats": "Squat",
 };
 
 export function canonicalExerciseName(name) {
