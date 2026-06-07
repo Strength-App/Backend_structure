@@ -1,8 +1,9 @@
 /**
  * exerciseNameNormalize.test.js
  *
- * Unit tests for the exercise-name canonicalizer. Confirms Back Squat aliasing
- * (case-insensitive, whitespace-tolerant) and pass-through for unknown names.
+ * Unit tests for the exercise-name canonicalizer. Confirms the squat-family
+ * aliasing (Back Squat and Squats both → Squat, case-insensitive and
+ * whitespace-tolerant) and pass-through for unknown names.
  *
  * Run with:  node --test tests/unit/exerciseNameNormalize.test.js
  */
@@ -23,11 +24,21 @@ describe("canonicalExerciseName", () => {
     assert.strictEqual(canonicalExerciseName("BaCk SqUaT"), "Squat");
   });
 
-  test("trims surrounding whitespace before aliasing", () => {
-    assert.strictEqual(canonicalExerciseName("  Back Squat  "), "Squat");
+  test("Squats → Squat", () => {
+    assert.strictEqual(canonicalExerciseName("Squats"), "Squat");
   });
 
-  test("Squat passes through unchanged", () => {
+  test("case-insensitive Squats alias", () => {
+    assert.strictEqual(canonicalExerciseName("squats"), "Squat");
+    assert.strictEqual(canonicalExerciseName("SQUATS"), "Squat");
+  });
+
+  test("trims surrounding whitespace before aliasing", () => {
+    assert.strictEqual(canonicalExerciseName("  Back Squat  "), "Squat");
+    assert.strictEqual(canonicalExerciseName("  Squats  "), "Squat");
+  });
+
+  test("Squat passes through unchanged (only the plural is an alias)", () => {
     assert.strictEqual(canonicalExerciseName("Squat"), "Squat");
   });
 
